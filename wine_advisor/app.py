@@ -88,7 +88,18 @@ def api_upload():
         import traceback
         traceback.print_exc()
         tmp_path.unlink(missing_ok=True)
-        return _err(f"Extraction failed: {exc}", 500)
+        exc_type = type(exc).__name__
+        msg = str(exc) or "unknown error"
+        # Surface actionable hints for common failures
+        if "connection" in msg.lower() or "connect" in exc_type.lower():
+            hint = "Cannot reach api.anthropic.com — check ANTHROPIC_API_KEY is set and network/SSL is working."
+        elif "authentication" in exc_type.lower() or "401" in msg:
+            hint = "Invalid or missing ANTHROPIC_API_KEY."
+        elif "permission" in msg.lower() or "403" in msg:
+            hint = "API key does not have permission for this operation."
+        else:
+            hint = msg
+        return _err(f"Extraction failed: {hint}", 500)
     finally:
         tmp_path.unlink(missing_ok=True)
 
