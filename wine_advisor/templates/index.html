@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wine Advisor — Resort Wine Buyer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <style>
     /* ── Reset & base ───────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -94,8 +96,39 @@
     .msg.user .msg-bubble { background: var(--wine); color: #fff; }
     .msg.assistant .msg-bubble {
       background: var(--card); border: 1px solid var(--border);
-      white-space: pre-wrap;
     }
+    /* Markdown styles inside assistant bubbles */
+    .msg.assistant .msg-bubble h1,
+    .msg.assistant .msg-bubble h2,
+    .msg.assistant .msg-bubble h3 {
+      color: var(--gold); margin: 12px 0 6px; font-size: .95rem; letter-spacing: .03em;
+    }
+    .msg.assistant .msg-bubble p { margin: 6px 0; line-height: 1.65; }
+    .msg.assistant .msg-bubble ul,
+    .msg.assistant .msg-bubble ol { margin: 6px 0 6px 18px; }
+    .msg.assistant .msg-bubble li { margin: 3px 0; line-height: 1.55; }
+    .msg.assistant .msg-bubble strong { color: var(--text); }
+    .msg.assistant .msg-bubble em { color: #c0b8ae; }
+    .msg.assistant .msg-bubble code {
+      background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 3px;
+      font-family: monospace; font-size: .85em;
+    }
+    .msg.assistant .msg-bubble pre {
+      background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 10px 14px; overflow-x: auto; margin: 8px 0;
+    }
+    .msg.assistant .msg-bubble pre code { background: none; padding: 0; }
+    .msg.assistant .msg-bubble hr {
+      border: none; border-top: 1px solid var(--border); margin: 10px 0;
+    }
+    .msg.assistant .msg-bubble table {
+      border-collapse: collapse; width: 100%; margin: 8px 0; font-size: .85rem;
+    }
+    .msg.assistant .msg-bubble th,
+    .msg.assistant .msg-bubble td {
+      padding: 5px 10px; border: 1px solid var(--border); text-align: left;
+    }
+    .msg.assistant .msg-bubble th { color: var(--muted); background: rgba(0,0,0,.2); }
     .msg-label {
       font-family: sans-serif; font-size: .72rem; color: var(--muted);
       margin-bottom: 4px; padding: 0 4px;
@@ -276,15 +309,7 @@
       <div class="chat-messages" id="chat-messages">
         <div class="msg assistant">
           <div class="msg-label">Alexandra Chen, MS</div>
-          <div class="msg-bubble">Welcome. I'm Alexandra Chen, your wine advisor. I have access to your importer and distributor catalogues and can help you build wine lists tailored to each concept at the resort.
-
-You can ask me to:
-• Search for specific wines, regions, or producers in your current inventory
-• Build a curated wine list for any of your restaurant concepts
-• Compare options by style, price, and pairing potential
-• Identify gaps in your current range and suggest what to source
-
-How can I help you today?</div>
+          <div class="msg-bubble" id="welcome-bubble"></div>
         </div>
       </div>
       <div class="chat-input-area">
@@ -387,6 +412,12 @@ How can I help you today?</div>
 <div class="toast" id="toast"></div>
 
 <script>
+/* ── Markdown setup ─────────────────────────────────────── */
+marked.setOptions({ breaks: true, gfm: true });
+function renderMarkdown(text) {
+  return DOMPurify.sanitize(marked.parse(text));
+}
+
 /* ── State ─────────────────────────────────────────────── */
 let chatHistory = [];
 let selectedConceptName = null;
@@ -479,8 +510,8 @@ async function sendMessage() {
         if (data === '[DONE]') break;
         try {
           const obj = JSON.parse(data);
-          if (obj.error) { bubble.textContent += '\n[Error: ' + obj.error + ']'; }
-          else if (obj.text) { fullText += obj.text; bubble.textContent = fullText; }
+          if (obj.error) { fullText += '\n[Error: ' + obj.error + ']'; bubble.innerHTML = renderMarkdown(fullText); }
+          else if (obj.text) { fullText += obj.text; bubble.innerHTML = renderMarkdown(fullText); }
         } catch(e) {}
       }
       scrollChat();
@@ -497,9 +528,18 @@ function appendMessage(role, text) {
   const wrap = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  div.innerHTML = `
-    <div class="msg-label">${role === 'user' ? 'You' : 'Alexandra Chen, MS'}</div>
-    <div class="msg-bubble">${text}</div>`;
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = role === 'user' ? 'You' : 'Alexandra Chen, MS';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  if (role === 'user') {
+    bubble.textContent = text;
+  } else {
+    bubble.innerHTML = text ? renderMarkdown(text) : '';
+  }
+  div.appendChild(label);
+  div.appendChild(bubble);
   wrap.appendChild(div);
   scrollChat();
   return div;
@@ -807,6 +847,17 @@ async function saveConcept(originalName) {
 }
 
 /* ── Init ───────────────────────────────────────────────── */
+const WELCOME = `Welcome. I'm **Alexandra Chen**, your wine advisor. I have access to your importer and distributor catalogues and can help you build wine lists tailored to each concept at the resort.
+
+You can ask me to:
+- Search for specific wines, regions, or producers in your current inventory
+- Build a curated wine list for any of your restaurant concepts
+- Compare options by style, price, and pairing potential
+- Identify gaps in your current range and suggest what to source
+
+How can I help you today?`;
+document.getElementById('welcome-bubble').innerHTML = renderMarkdown(WELCOME);
+
 loadStats();
 loadConceptsSidebar();
 setInterval(loadStats, 30000);
