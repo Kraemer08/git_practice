@@ -59,19 +59,11 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     mime = _guess_mime(filename)
 
     # 1 ── Upload to Files API
-    print(f"DEBUG: Uploading {filename} ({mime}) to Files API...", flush=True)
-    try:
-        with file_path.open("rb") as fh:
-            uploaded = client.beta.files.upload(
-                file=(filename, fh, mime),
-            )
-        file_id = uploaded.id
-        print(f"DEBUG: Upload successful, file_id={file_id}", flush=True)
-    except Exception as e:
-        import traceback
-        print(f"DEBUG: Upload failed: {e}", flush=True)
-        traceback.print_exc()
-        raise
+    with file_path.open("rb") as fh:
+        uploaded = client.beta.files.upload(
+            file=(filename, fh, mime),
+        )
+    file_id = uploaded.id
 
     # 2 ── Create a document record
     doc_id = insert_document(filename, file_id, supplier)
@@ -94,12 +86,12 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     with client.beta.messages.stream(
         model="claude-opus-4-6",
         max_tokens=8192,
-        thinking={"type": "adaptive"},
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
         betas=["files-api-2025-04-14"],
     ) as stream:
-        full_text = stream.get_final_message().content[-1].text
+        final = stream.get_final_message()
+        full_text = next(b.text for b in final.content if b.type == "text")
 
     # 4 ── Parse JSON from response
     wines = _parse_wine_json(full_text)
