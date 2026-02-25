@@ -85,6 +85,8 @@ def api_upload():
     try:
         count, file_id = upload_and_extract(tmp_path, supplier)
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         tmp_path.unlink(missing_ok=True)
         return _err(f"Extraction failed: {exc}", 500)
     finally:

@@ -86,12 +86,12 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     with client.beta.messages.stream(
         model="claude-opus-4-6",
         max_tokens=8192,
-        thinking={"type": "adaptive"},
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
         betas=["files-api-2025-04-14"],
     ) as stream:
-        full_text = stream.get_final_message().content[-1].text
+        final = stream.get_final_message()
+        full_text = next(b.text for b in final.content if b.type == "text")
 
     # 4 ── Parse JSON from response
     wines = _parse_wine_json(full_text)
