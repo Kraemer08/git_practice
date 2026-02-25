@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wine Advisor — Resort Wine Buyer</title>
+  <style>
+    /* ── Reset & base ───────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0f0e0d;
+      --surface: #1a1815;
+      --card:    #221f1c;
+      --border:  #3a342e;
+      --wine:    #8b2635;
+      --gold:    #c9a84c;
+      --text:    #e8ddd0;
+      --muted:   #8a7d6e;
+      --green:   #4a7c59;
+      --r: 6px;
+    }
+    html, body { height: 100%; font-family: 'Georgia', serif; background: var(--bg); color: var(--text); }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 24px; gap: 16px;
+    }
+    header h1 { font-size: 1.1rem; color: var(--gold); letter-spacing: .05em; }
+    header .stat { font-family: sans-serif; font-size: .78rem; color: var(--muted);
+                   background: var(--card); padding: 4px 10px; border-radius: 20px; }
+    header .spacer { flex: 1; }
+
+    /* ── Tabs ────────────────────────────────────────────── */
+    .tabs { display: flex; gap: 4px; }
+    .tab-btn {
+      background: none; border: none; padding: 8px 16px; cursor: pointer;
+      font-family: sans-serif; font-size: .82rem; color: var(--muted);
+      border-radius: var(--r); transition: .15s;
+    }
+    .tab-btn:hover { background: var(--card); color: var(--text); }
+    .tab-btn.active { background: var(--wine); color: #fff; }
+
+    .main { display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
+
+    /* ── Sidebar ─────────────────────────────────────────── */
+    .sidebar {
+      background: var(--surface); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow-y: auto; padding: 16px 12px;
+    }
+    .sidebar-section { margin-bottom: 20px; }
+    .sidebar-label { font-family: sans-serif; font-size: .7rem; text-transform: uppercase;
+                     letter-spacing: .1em; color: var(--muted); margin-bottom: 8px; }
+    .concept-item {
+      padding: 8px 10px; border-radius: var(--r); cursor: pointer;
+      font-size: .85rem; margin-bottom: 4px; transition: .15s;
+    }
+    .concept-item:hover { background: var(--card); }
+    .concept-item.active { background: var(--wine); color: #fff; }
+    .concept-item .tier { font-family: sans-serif; font-size: .72rem; color: var(--muted); }
+    .concept-item.active .tier { color: rgba(255,255,255,.6); }
+
+    .btn {
+      display: block; width: 100%; padding: 9px 14px; border-radius: var(--r);
+      font-family: sans-serif; font-size: .82rem; cursor: pointer; border: none;
+      text-align: center; transition: .15s;
+    }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-primary { background: var(--wine); color: #fff; }
+    .btn-primary:hover { background: #a02d3e; }
+
+    /* ── Panel container ─────────────────────────────────── */
+    .panel { display: none; flex-direction: column; overflow: hidden; }
+    .panel.active { display: flex; }
+
+    /* ── Chat panel ──────────────────────────────────────── */
+    #panel-chat { flex-direction: column; }
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 20px 24px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .msg {
+      max-width: 780px; line-height: 1.65;
+    }
+    .msg.user { align-self: flex-end; }
+    .msg.assistant { align-self: flex-start; }
+    .msg-bubble {
+      padding: 12px 16px; border-radius: var(--r); font-size: .92rem;
+    }
+    .msg.user .msg-bubble { background: var(--wine); color: #fff; }
+    .msg.assistant .msg-bubble {
+      background: var(--card); border: 1px solid var(--border);
+      white-space: pre-wrap;
+    }
+    .msg-label {
+      font-family: sans-serif; font-size: .72rem; color: var(--muted);
+      margin-bottom: 4px; padding: 0 4px;
+    }
+    .msg.user .msg-label { text-align: right; }
+
+    .chat-input-area {
+      border-top: 1px solid var(--border); padding: 16px 24px;
+      display: flex; gap: 10px; background: var(--surface);
+    }
+    .chat-input-area textarea {
+      flex: 1; background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 10px 14px; color: var(--text);
+      font-family: inherit; font-size: .9rem; resize: none; min-height: 52px; max-height: 160px;
+    }
+    .chat-input-area textarea:focus { outline: none; border-color: var(--gold); }
+    .chat-input-area textarea::placeholder { color: var(--muted); }
+
+    /* ── Upload panel ────────────────────────────────────── */
+    #panel-upload { padding: 28px 32px; overflow-y: auto; flex-direction: column; gap: 24px; }
+    .drop-zone {
+      border: 2px dashed var(--border); border-radius: var(--r);
+      padding: 48px 24px; text-align: center; cursor: pointer; transition: .2s;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: var(--gold); background: rgba(201,168,76,.05); }
+    .drop-icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .drop-zone p { font-family: sans-serif; font-size: .88rem; color: var(--muted); margin-top: 6px; }
+    .drop-zone input[type=file] { display: none; }
+
+    .upload-form { display: flex; flex-direction: column; gap: 12px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-field { display: flex; flex-direction: column; gap: 6px; }
+    .form-field label { font-family: sans-serif; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .form-field input, .form-field select, .form-field textarea {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 9px 12px; color: var(--text); font-family: inherit; font-size: .88rem;
+    }
+    .form-field input:focus, .form-field select:focus, .form-field textarea:focus {
+      outline: none; border-color: var(--gold);
+    }
+    .form-field select option { background: var(--card); }
+
+    .upload-progress { display: none; background: var(--card); border-radius: var(--r);
+                       padding: 14px 16px; font-family: sans-serif; font-size: .85rem; }
+    .upload-progress.show { display: block; }
+    .progress-bar-wrap { background: var(--border); border-radius: 20px; height: 6px; margin-top: 10px; }
+    .progress-bar { height: 100%; border-radius: 20px; background: var(--wine);
+                    width: 0; transition: width .3s; }
+
+    .doc-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: .84rem; }
+    .doc-table th { text-align: left; padding: 8px 12px; color: var(--muted);
+                    font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+                    border-bottom: 1px solid var(--border); }
+    .doc-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .doc-table tr:hover td { background: var(--card); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 20px;
+             font-size: .72rem; font-weight: 600; }
+    .badge-wine { background: rgba(139,38,53,.25); color: #d97485; }
+    .del-btn { background: none; border: none; cursor: pointer; color: var(--muted);
+               font-size: 1rem; padding: 2px 6px; border-radius: 4px; }
+    .del-btn:hover { color: #e05; background: rgba(220,0,80,.1); }
+
+    /* ── Wines panel ─────────────────────────────────────── */
+    #panel-wines { flex-direction: column; overflow: hidden; }
+    .wines-toolbar {
+      padding: 14px 24px; background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; gap: 10px; flex-wrap: wrap;
+    }
+    .search-input {
+      flex: 1; min-width: 200px; background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 8px 14px; color: var(--text); font-family: inherit;
+      font-size: .88rem;
+    }
+    .search-input:focus { outline: none; border-color: var(--gold); }
+    .filter-select {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 8px 12px; color: var(--text); font-family: sans-serif; font-size: .82rem; cursor: pointer;
+    }
+    .filter-select option { background: var(--card); }
+
+    .wines-grid {
+      flex: 1; overflow-y: auto; padding: 20px 24px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px;
+    }
+    .wine-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 14px 16px; cursor: pointer; transition: .15s;
+    }
+    .wine-card:hover { border-color: var(--gold); }
+    .wine-card h3 { font-size: .92rem; margin-bottom: 4px; line-height: 1.3; }
+    .wine-card .producer { font-family: sans-serif; font-size: .78rem; color: var(--muted); margin-bottom: 8px; }
+    .wine-card .meta { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tag {
+      font-family: sans-serif; font-size: .7rem; padding: 2px 8px;
+      border-radius: 20px; background: rgba(255,255,255,.06); color: var(--muted);
+    }
+    .price-tag { color: var(--gold); font-family: sans-serif; font-size: .8rem; font-weight: 600; }
+
+    /* ── Concepts panel ──────────────────────────────────── */
+    #panel-concepts { flex-direction: column; overflow: hidden; }
+    .concepts-layout { flex: 1; display: grid; grid-template-columns: 340px 1fr; overflow: hidden; }
+    .concepts-list { border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+    .concept-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: .15s;
+    }
+    .concept-card:hover { border-color: var(--gold); }
+    .concept-card.selected { border-color: var(--wine); }
+    .concept-card h3 { font-size: .9rem; margin-bottom: 4px; }
+    .concept-card .sub { font-family: sans-serif; font-size: .76rem; color: var(--muted); }
+    .concepts-detail { padding: 24px; overflow-y: auto; }
+    .detail-form { display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
+
+    /* ── Modal overlay ───────────────────────────────────── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      z-index: 100; align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 24px; max-width: 520px; width: 90%; max-height: 80vh; overflow-y: auto;
+    }
+    .modal h2 { font-size: 1rem; margin-bottom: 16px; color: var(--gold); }
+    .modal-close { float: right; background: none; border: none; color: var(--muted);
+                   font-size: 1.3rem; cursor: pointer; }
+
+    /* ── Toast ───────────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; background: var(--card);
+      border: 1px solid var(--border); border-radius: var(--r); padding: 12px 18px;
+      font-family: sans-serif; font-size: .85rem; z-index: 200;
+      transform: translateY(80px); opacity: 0; transition: .3s;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-color: var(--green); color: #7ec89a; }
+    .toast.error { border-color: #a03; color: #f07; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header>
+    <h1>&#127863; Wine Advisor</h1>
+    <span class="stat" id="db-stat">Loading…</span>
+    <span class="stat" id="doc-stat"></span>
+    <span class="spacer"></span>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="chat">&#128172; Advisor Chat</button>
+      <button class="tab-btn" data-tab="upload">&#128196; Catalogues</button>
+      <button class="tab-btn" data-tab="wines">&#128374; Wine Database</button>
+      <button class="tab-btn" data-tab="concepts">&#127963; Concepts</button>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Quick Start</div>
+        <button class="btn btn-outline" style="margin-bottom:6px" onclick="sendQuick('What wines do we have in the database? Give me an overview of styles and countries.')">Explore inventory</button>
+        <button class="btn btn-outline" style="margin-bottom:6px" onclick="sendQuick('What are the best value-for-money options in our current inventory?')">Best value picks</button>
+        <button class="btn btn-outline" onclick="sendQuick('List all saved restaurant concepts and summarise the wine style for each.')">Review all concepts</button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Restaurant Concepts</div>
+        <div id="sidebar-concepts"></div>
+        <button class="btn btn-outline" style="margin-top:8px" onclick="showTab('concepts')">+ New Concept</button>
+      </div>
+    </aside>
+
+    <!-- Chat -->
+    <div class="panel active" id="panel-chat">
+      <div class="chat-messages" id="chat-messages">
+        <div class="msg assistant">
+          <div class="msg-label">Alexandra Chen, MS</div>
+          <div class="msg-bubble">Welcome. I'm Alexandra Chen, your wine advisor. I have access to your importer and distributor catalogues and can help you build wine lists tailored to each concept at the resort.
+
+You can ask me to:
+• Search for specific wines, regions, or producers in your current inventory
+• Build a curated wine list for any of your restaurant concepts
+• Compare options by style, price, and pairing potential
+• Identify gaps in your current range and suggest what to source
+
+How can I help you today?</div>
+        </div>
+      </div>
+      <div class="chat-input-area">
+        <textarea id="chat-input" rows="2" placeholder="Ask about wines, request recommendations, describe a concept…" onkeydown="handleKey(event)"></textarea>
+        <button class="btn btn-primary" onclick="sendMessage()" style="width:80px;height:52px">Send</button>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="panel" id="panel-upload">
+      <h2 style="font-size:1.05rem;color:var(--gold);margin-bottom:4px">Upload Wine Catalogues</h2>
+      <p style="font-family:sans-serif;font-size:.84rem;color:var(--muted);margin-bottom:20px">
+        Upload PDF price books or plain-text catalogues from your importers and distributors.
+        Claude will extract all wine data automatically.
+      </p>
+
+      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div class="drop-icon">📄</div>
+        <strong>Click to select a file</strong>
+        <p>or drag &amp; drop here</p>
+        <p>Supports: PDF, CSV, TXT</p>
+        <input type="file" id="file-input" accept=".pdf,.csv,.txt" onchange="fileSelected(event)" />
+      </div>
+
+      <div class="upload-form">
+        <div class="form-row">
+          <div class="form-field">
+            <label>Selected file</label>
+            <input type="text" id="selected-file" readonly placeholder="No file selected" />
+          </div>
+          <div class="form-field">
+            <label>Supplier / Importer name</label>
+            <input type="text" id="supplier-name" placeholder="e.g. Southern Glazer's, Winebow…" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="uploadFile()" style="max-width:200px">Upload &amp; Extract</button>
+      </div>
+
+      <div class="upload-progress" id="upload-progress">
+        <span id="progress-text">Uploading and extracting wine data…</span>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+      </div>
+
+      <h3 style="font-size:.9rem;color:var(--gold);margin-top:4px;margin-bottom:10px">Uploaded Catalogues</h3>
+      <table class="doc-table">
+        <thead>
+          <tr><th>Filename</th><th>Supplier</th><th>Wines</th><th>Uploaded</th><th></th></tr>
+        </thead>
+        <tbody id="doc-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Wines -->
+    <div class="panel" id="panel-wines">
+      <div class="wines-toolbar">
+        <input class="search-input" id="wine-search" placeholder="Search wines, producers, regions, grapes…" oninput="debounceSearch()" />
+        <select class="filter-select" id="filter-style" onchange="searchWines()">
+          <option value="">All styles</option>
+          <option value="red">Red</option>
+          <option value="white">White</option>
+          <option value="rosé">Rosé</option>
+          <option value="sparkling">Sparkling</option>
+          <option value="fortified">Fortified</option>
+          <option value="dessert">Dessert</option>
+          <option value="orange">Orange</option>
+        </select>
+        <select class="filter-select" id="filter-country" onchange="searchWines()">
+          <option value="">All countries</option>
+        </select>
+        <input class="filter-select" id="filter-max-price" type="number" min="0" placeholder="Max price $" onchange="searchWines()" style="width:120px" />
+      </div>
+      <div class="wines-grid" id="wines-grid"></div>
+    </div>
+
+    <!-- Concepts -->
+    <div class="panel" id="panel-concepts">
+      <div class="concepts-layout">
+        <div class="concepts-list">
+          <div id="concepts-cards"></div>
+          <button class="btn btn-outline" style="margin-top:10px" onclick="newConcept()">+ Add Concept</button>
+        </div>
+        <div class="concepts-detail" id="concepts-detail">
+          <p style="color:var(--muted);font-family:sans-serif;font-size:.88rem">Select a concept to view or edit it, or create a new one.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Wine detail modal -->
+<div class="modal-overlay" id="wine-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h2 id="modal-title"></h2>
+    <div id="modal-body" style="font-family:sans-serif;font-size:.85rem;line-height:1.7"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── State ─────────────────────────────────────────────── */
+let chatHistory = [];
+let selectedConceptName = null;
+let allConcepts = [];
+let searchTimer = null;
+
+/* ── Tabs ───────────────────────────────────────────────── */
+function showTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  if (name === 'upload')  loadDocuments();
+  if (name === 'wines')   searchWines();
+  if (name === 'concepts') loadConcepts();
+}
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+/* ── Toast ──────────────────────────────────────────────── */
+function toast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast', 3200);
+}
+
+/* ── Stats ──────────────────────────────────────────────── */
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const s = await r.json();
+    document.getElementById('db-stat').textContent = `${s.total} wines`;
+    document.getElementById('doc-stat').textContent = `${s.documents} catalogues`;
+
+    // Populate country filter
+    const sel = document.getElementById('filter-country');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All countries</option>';
+    (s.countries || []).forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      if (c === current) o.selected = true;
+      sel.appendChild(o);
+    });
+  } catch(e) { console.error(e); }
+}
+
+/* ── Chat ───────────────────────────────────────────────── */
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function sendQuick(text) {
+  showTab('chat');
+  document.getElementById('chat-input').value = text;
+  sendMessage();
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  appendMessage('user', text);
+  chatHistory.push({ role: 'user', content: text });
+
+  const assistantBubble = appendMessage('assistant', '');
+  const bubble = assistantBubble.querySelector('.msg-bubble');
+  let fullText = '';
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: chatHistory })
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') break;
+        try {
+          const obj = JSON.parse(data);
+          if (obj.error) { bubble.textContent += '\n[Error: ' + obj.error + ']'; }
+          else if (obj.text) { fullText += obj.text; bubble.textContent = fullText; }
+        } catch(e) {}
+      }
+      scrollChat();
+    }
+  } catch(e) {
+    bubble.textContent = 'Connection error: ' + e.message;
+  }
+
+  chatHistory.push({ role: 'assistant', content: fullText });
+  loadStats();
+}
+
+function appendMessage(role, text) {
+  const wrap = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = `
+    <div class="msg-label">${role === 'user' ? 'You' : 'Alexandra Chen, MS'}</div>
+    <div class="msg-bubble">${text}</div>`;
+  wrap.appendChild(div);
+  scrollChat();
+  return div;
+}
+
+function scrollChat() {
+  const wrap = document.getElementById('chat-messages');
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+/* ── Upload ─────────────────────────────────────────────── */
+let selectedFile = null;
+
+document.getElementById('drop-zone').addEventListener('dragover', e => {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drag-over');
+});
+document.getElementById('drop-zone').addEventListener('dragleave', () => {
+  document.getElementById('drop-zone').classList.remove('drag-over');
+});
+document.getElementById('drop-zone').addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) setSelectedFile(file);
+});
+
+function fileSelected(e) { setSelectedFile(e.target.files[0]); }
+function setSelectedFile(file) {
+  selectedFile = file;
+  document.getElementById('selected-file').value = file.name;
+}
+
+async function uploadFile() {
+  if (!selectedFile) { toast('Please select a file first.', 'error'); return; }
+  const supplier = document.getElementById('supplier-name').value.trim() || 'Unknown Supplier';
+
+  const prog = document.getElementById('upload-progress');
+  const bar = document.getElementById('progress-bar');
+  const progText = document.getElementById('progress-text');
+  prog.classList.add('show');
+  progText.textContent = 'Uploading and extracting wine data… (this may take a moment for large catalogues)';
+  bar.style.width = '15%';
+
+  // Animate bar while waiting
+  let pct = 15;
+  const anim = setInterval(() => { pct = Math.min(pct + 3, 88); bar.style.width = pct + '%'; }, 800);
+
+  try {
+    const form = new FormData();
+    form.append('file', selectedFile);
+    form.append('supplier', supplier);
+
+    const res = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await res.json();
+
+    clearInterval(anim);
+    bar.style.width = '100%';
+
+    if (!res.ok) {
+      progText.textContent = 'Error: ' + data.error;
+      toast(data.error, 'error');
+    } else {
+      progText.textContent = data.message;
+      toast(data.message);
+      selectedFile = null;
+      document.getElementById('selected-file').value = '';
+      document.getElementById('supplier-name').value = '';
+      loadDocuments();
+      loadStats();
+      loadConceptsSidebar();
+    }
+  } catch(e) {
+    clearInterval(anim);
+    progText.textContent = 'Upload failed: ' + e.message;
+    toast('Upload failed: ' + e.message, 'error');
+  }
+
+  setTimeout(() => { prog.classList.remove('show'); bar.style.width = '0'; }, 4000);
+}
+
+async function loadDocuments() {
+  const tbody = document.getElementById('doc-table-body');
+  tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);font-family:sans-serif;font-size:.82rem">Loading…</td></tr>';
+  try {
+    const res = await fetch('/api/documents');
+    const docs = await res.json();
+    if (!docs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);font-family:sans-serif;font-size:.82rem">No catalogues uploaded yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = docs.map(d => `
+      <tr>
+        <td>${d.filename}</td>
+        <td>${d.supplier || '—'}</td>
+        <td><span class="badge badge-wine">${d.wine_count} wines</span></td>
+        <td style="font-family:sans-serif;font-size:.78rem;color:var(--muted)">${d.uploaded_at ? d.uploaded_at.slice(0,16) : ''}</td>
+        <td><button class="del-btn" onclick="deleteDoc(${d.id})" title="Delete">&#128465;</button></td>
+      </tr>`).join('');
+  } catch(e) { tbody.innerHTML = '<tr><td colspan="5">Error loading documents.</td></tr>'; }
+}
+
+async function deleteDoc(id) {
+  if (!confirm('Delete this catalogue and all its wines?')) return;
+  await fetch('/api/documents/' + id, { method: 'DELETE' });
+  loadDocuments(); loadStats();
+}
+
+/* ── Wines ──────────────────────────────────────────────── */
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(searchWines, 350);
+}
+
+async function searchWines() {
+  const q = document.getElementById('wine-search').value;
+  const style = document.getElementById('filter-style').value;
+  const country = document.getElementById('filter-country').value;
+  const maxPrice = document.getElementById('filter-max-price').value;
+
+  const params = new URLSearchParams({ limit: 100 });
+  if (q) params.set('q', q);
+  if (style) params.set('style', style);
+  if (country) params.set('country', country);
+  if (maxPrice) params.set('max_price', maxPrice);
+
+  const grid = document.getElementById('wines-grid');
+  grid.innerHTML = '<p style="color:var(--muted);font-family:sans-serif;font-size:.85rem;grid-column:1/-1">Loading…</p>';
+
+  try {
+    const res = await fetch('/api/wines?' + params);
+    const wines = await res.json();
+
+    if (!wines.length) {
+      grid.innerHTML = '<p style="color:var(--muted);font-family:sans-serif;font-size:.85rem;grid-column:1/-1">No wines found. Upload catalogues to populate the database.</p>';
+      return;
+    }
+
+    grid.innerHTML = wines.map(w => `
+      <div class="wine-card" onclick="showWine(${w.id})">
+        <h3>${w.vintage ? w.vintage + ' ' : ''}${w.name || 'Unnamed'}</h3>
+        <div class="producer">${w.producer || ''} ${w.appellation ? '· ' + w.appellation : ''}</div>
+        <div class="meta">
+          ${w.style ? `<span class="tag">${w.style}</span>` : ''}
+          ${w.country ? `<span class="tag">${w.country}</span>` : ''}
+          ${w.grape_varieties ? `<span class="tag">${w.grape_varieties.split(',').slice(0,2).join(', ')}</span>` : ''}
+          ${w.price ? `<span class="price-tag">$${w.price}/${w.unit || 'btl'}</span>` : ''}
+        </div>
+      </div>`).join('');
+  } catch(e) { grid.innerHTML = '<p style="color:var(--muted)">Error loading wines.</p>'; }
+}
+
+async function showWine(id) {
+  const res = await fetch('/api/wines/' + id);
+  const w = await res.json();
+  document.getElementById('modal-title').textContent =
+    `${w.vintage ? w.vintage + ' ' : ''}${w.name || 'Wine Details'}`;
+  document.getElementById('modal-body').innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      ${row('Producer', w.producer)}
+      ${row('Appellation', w.appellation)}
+      ${row('Region', w.region)}
+      ${row('Country', w.country)}
+      ${row('Style', w.style)}
+      ${row('Grape Varieties', w.grape_varieties)}
+      ${row('Vintage', w.vintage)}
+      ${row('Alcohol', w.alcohol)}
+      ${row('Critic Score', w.score)}
+      ${row('Price', w.price ? `$${w.price} per ${w.unit || 'bottle'}` : null)}
+      ${row('Importer', w.importer)}
+      ${w.description ? `<tr><td colspan="2" style="padding:10px 0;line-height:1.6;color:#c5b8a8;border-top:1px solid var(--border)">${w.description}</td></tr>` : ''}
+    </table>`;
+  document.getElementById('wine-modal').classList.add('open');
+}
+
+function row(label, val) {
+  if (!val) return '';
+  return `<tr>
+    <td style="padding:6px 0 6px 0;color:var(--muted);width:140px;vertical-align:top">${label}</td>
+    <td style="padding:6px 0;border-bottom:1px solid var(--border)">${val}</td>
+  </tr>`;
+}
+
+function closeModal() { document.getElementById('wine-modal').classList.remove('open'); }
+document.getElementById('wine-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+/* ── Concepts ───────────────────────────────────────────── */
+async function loadConcepts() {
+  const res = await fetch('/api/concepts');
+  allConcepts = await res.json();
+
+  const cards = document.getElementById('concepts-cards');
+  cards.innerHTML = allConcepts.length ? allConcepts.map(c => `
+    <div class="concept-card ${c.name === selectedConceptName ? 'selected' : ''}"
+         onclick="selectConcept('${c.name.replace(/'/g,"\\'")}')">
+      <h3>${c.name}</h3>
+      <div class="sub">${c.cuisine_type || ''} &middot; ${c.price_tier || ''}</div>
+    </div>`).join('') : '<p style="color:var(--muted);font-family:sans-serif;font-size:.82rem">No concepts yet.</p>';
+
+  if (selectedConceptName) {
+    const c = allConcepts.find(x => x.name === selectedConceptName);
+    if (c) renderConceptDetail(c); else renderNewConceptForm();
+  }
+
+  loadConceptsSidebar();
+}
+
+async function loadConceptsSidebar() {
+  const res = await fetch('/api/concepts');
+  const concepts = await res.json();
+  const sidebar = document.getElementById('sidebar-concepts');
+  sidebar.innerHTML = concepts.map(c => `
+    <div class="concept-item ${c.name === selectedConceptName ? 'active' : ''}"
+         onclick="conceptChat('${c.name.replace(/'/g,"\\'")}')">
+      ${c.name}
+      <div class="tier">${c.cuisine_type || ''}</div>
+    </div>`).join('');
+}
+
+function conceptChat(name) {
+  sendQuick(`Please suggest a detailed wine list for the "${name}" concept, including BTG and bottle selections with pairing rationale.`);
+}
+
+function selectConcept(name) {
+  selectedConceptName = name;
+  const c = allConcepts.find(x => x.name === name);
+  if (c) renderConceptDetail(c);
+  loadConcepts();
+}
+
+function newConcept() {
+  selectedConceptName = null;
+  renderNewConceptForm();
+}
+
+function renderConceptDetail(c) {
+  document.getElementById('concepts-detail').innerHTML = `
+    <h2 style="color:var(--gold);font-size:1.05rem;margin-bottom:16px">${c.name}</h2>
+    <div class="detail-form">
+      ${cField('Concept Name', 'edit-name', c.name)}
+      ${cField('Cuisine Type', 'edit-cuisine', c.cuisine_type)}
+      ${cSelect('Price Tier', 'edit-tier', c.price_tier)}
+      ${cArea('Guest Profile', 'edit-guests', c.guest_profile)}
+      ${cArea('Wine Style Notes', 'edit-wine-notes', c.wine_style_notes)}
+      ${cArea('Additional Notes', 'edit-notes', c.additional_notes)}
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-primary" onclick="saveConcept('${c.name.replace(/'/g,"\\'")}')">Save Changes</button>
+        <button class="btn btn-outline" onclick="conceptChat('${c.name.replace(/'/g,"\\'")}')">&#128172; Get Wine List</button>
+      </div>
+    </div>`;
+}
+
+function renderNewConceptForm() {
+  document.getElementById('concepts-detail').innerHTML = `
+    <h2 style="color:var(--gold);font-size:1.05rem;margin-bottom:16px">New Concept</h2>
+    <div class="detail-form">
+      ${cField('Concept Name', 'edit-name', '')}
+      ${cField('Cuisine Type', 'edit-cuisine', '')}
+      ${cSelect('Price Tier', 'edit-tier', '')}
+      ${cArea('Guest Profile', 'edit-guests', '')}
+      ${cArea('Wine Style Notes', 'edit-wine-notes', '')}
+      ${cArea('Additional Notes', 'edit-notes', '')}
+      <button class="btn btn-primary" onclick="saveConcept(null)" style="max-width:160px">Create Concept</button>
+    </div>`;
+}
+
+function cField(label, id, val) {
+  return `<div class="form-field"><label>${label}</label><input id="${id}" value="${(val||'').replace(/"/g,'&quot;')}" /></div>`;
+}
+function cArea(label, id, val) {
+  return `<div class="form-field"><label>${label}</label><textarea id="${id}" rows="2" style="resize:vertical">${val||''}</textarea></div>`;
+}
+function cSelect(label, id, val) {
+  const opts = ['', 'casual', 'mid-range', 'upscale', 'fine dining', 'ultra-premium'];
+  return `<div class="form-field"><label>${label}</label><select id="${id}">${
+    opts.map(o => `<option value="${o}" ${o===val?'selected':''}>${o||'Select…'}</option>`).join('')
+  }</select></div>`;
+}
+
+async function saveConcept(originalName) {
+  const name = document.getElementById('edit-name').value.trim();
+  if (!name) { toast('Concept name is required.', 'error'); return; }
+  const data = {
+    name,
+    cuisine_type:    document.getElementById('edit-cuisine').value,
+    price_tier:      document.getElementById('edit-tier').value,
+    guest_profile:   document.getElementById('edit-guests').value,
+    wine_style_notes: document.getElementById('edit-wine-notes').value,
+    additional_notes: document.getElementById('edit-notes').value,
+  };
+  const res = await fetch('/api/concepts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const r = await res.json();
+  if (res.ok) {
+    toast(r.message);
+    selectedConceptName = name;
+    loadConcepts();
+  } else {
+    toast(r.error, 'error');
+  }
+}
+
+/* ── Init ───────────────────────────────────────────────── */
+loadStats();
+loadConceptsSidebar();
+setInterval(loadStats, 30000);
+</script>
+</body>
+</html>
