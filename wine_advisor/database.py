@@ -190,33 +190,41 @@ def search_wines(query: str = "", filters: dict | None = None, limit: int = 50) 
     filters = filters or {}
     conn = get_conn()
 
+    # Build SQL-level filter clauses
+    filter_clauses: list[str] = []
+    filter_params: list = []
+    if filters.get("style"):
+        filter_clauses.append("LOWER(style) = LOWER(?)")
+        filter_params.append(filters["style"])
+    if filters.get("country"):
+        filter_clauses.append("LOWER(country) = LOWER(?)")
+        filter_params.append(filters["country"])
+    if filters.get("max_price") is not None:
+        filter_clauses.append("price IS NOT NULL AND price <= ?")
+        filter_params.append(float(filters["max_price"]))
+    if filters.get("min_price") is not None:
+        filter_clauses.append("price IS NOT NULL AND price >= ?")
+        filter_params.append(float(filters["min_price"]))
+
     if query:
+        # FTS query: MATCH goes in the WHERE clause; additional filters join via AND
+        extra = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
         rows = conn.execute(
-            """SELECT w.* FROM wines w
+            f"""SELECT w.* FROM wines w
                JOIN wines_fts f ON w.id = f.rowid
-               WHERE wines_fts MATCH ?
+               WHERE wines_fts MATCH ?{extra}
                ORDER BY rank LIMIT ?""",
-            (query, limit),
+            (query, *filter_params, limit),
         ).fetchall()
     else:
+        where = ("WHERE " + " AND ".join(filter_clauses)) if filter_clauses else ""
         rows = conn.execute(
-            "SELECT * FROM wines ORDER BY producer, name LIMIT ?", (limit,)
+            f"SELECT * FROM wines {where} ORDER BY producer, name LIMIT ?",
+            (*filter_params, limit),
         ).fetchall()
 
-    results = [dict(r) for r in rows]
-
-    # Apply filters
-    if filters.get("style"):
-        results = [r for r in results if r.get("style", "").lower() == filters["style"].lower()]
-    if filters.get("country"):
-        results = [r for r in results if r.get("country", "").lower() == filters["country"].lower()]
-    if filters.get("max_price") is not None:
-        results = [r for r in results if r.get("price") is not None and r["price"] <= float(filters["max_price"])]
-    if filters.get("min_price") is not None:
-        results = [r for r in results if r.get("price") is not None and r["price"] >= float(filters["min_price"])]
-
     conn.close()
-    return results
+    return [dict(r) for r in rows]
 
 
 def get_wine(wine_id: int) -> dict | None:

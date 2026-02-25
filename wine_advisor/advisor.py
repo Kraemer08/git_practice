@@ -296,39 +296,32 @@ Available wines by style:
 
 def chat_stream(messages: list[dict]) -> Generator[str, None, None]:
     """
-    Run one turn of the agentic loop with streaming text output.
-    Yields text chunks as they arrive; handles tool calls internally.
+    Run one turn of the agentic loop with real-time streaming text output.
+    Yields text chunks as they arrive from Claude; handles tool calls internally.
     messages: full conversation history (user + assistant turns).
     """
     while True:
         with client.messages.stream(
             model="claude-opus-4-6",
             max_tokens=4096,
-            thinking={"type": "adaptive"},
+            thinking={"type": "enabled", "budget_tokens": 8000},
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=messages,
         ) as stream:
+            # Yield text tokens in real time as they arrive
+            for text in stream.text_stream:
+                yield text
             response = stream.get_final_message()
 
-        # Collect text and tool calls
-        tool_calls = []
-        text_parts = []
-        for block in response.content:
-            if block.type == "text":
-                text_parts.append(block.text)
-            elif block.type == "tool_use":
-                tool_calls.append(block)
-
-        # Yield any text we got
-        for text in text_parts:
-            yield text
+        # Collect tool calls from the completed response
+        tool_calls = [b for b in response.content if b.type == "tool_use"]
 
         # If no tool calls, we're done
-        if not tool_calls or response.stop_reason == "end_turn":
+        if not tool_calls:
             break
 
-        # Execute tools and continue
+        # Execute tools and loop back for the next assistant turn
         messages.append({"role": "assistant", "content": response.content})
 
         tool_results = []
