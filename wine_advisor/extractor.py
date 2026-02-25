@@ -59,11 +59,19 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     mime = _guess_mime(filename)
 
     # 1 ── Upload to Files API
-    with file_path.open("rb") as fh:
-        uploaded = client.beta.files.upload(
-            file=(filename, fh, mime),
-        )
-    file_id = uploaded.id
+    print(f"DEBUG: Uploading {filename} ({mime}) to Files API...", flush=True)
+    try:
+        with file_path.open("rb") as fh:
+            uploaded = client.beta.files.upload(
+                file=(filename, fh, mime),
+            )
+        file_id = uploaded.id
+        print(f"DEBUG: Upload successful, file_id={file_id}", flush=True)
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Upload failed: {e}", flush=True)
+        traceback.print_exc()
+        raise
 
     # 2 ── Create a document record
     doc_id = insert_document(filename, file_id, supplier)
