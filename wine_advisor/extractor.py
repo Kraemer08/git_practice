@@ -130,22 +130,21 @@ def _pdf_chunk_b64(file_path: Path, start_page: int, end_page: int) -> str:
 
 def _call_claude(content_block: list) -> list[dict]:
     """Send one content block to Claude and return parsed wines."""
-    with client.messages.stream(
-        model="claude-opus-4-6",
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
         max_tokens=16000,
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
-    ) as stream:
-        final = stream.get_final_message()
-        text_block = next(
-            (b for b in final.content if b.type == "text" and hasattr(b, "text")),
-            None,
+    )
+    text_block = next(
+        (b for b in response.content if b.type == "text"),
+        None,
+    )
+    if text_block is None:
+        raise ValueError(
+            f"Claude returned no text block. Stop reason: {response.stop_reason}. "
+            f"Block types present: {[b.type for b in response.content]}"
         )
-        if text_block is None:
-            raise ValueError(
-                f"Claude returned no text block. Stop reason: {final.stop_reason}. "
-                f"Block types present: {[b.type for b in final.content]}"
-            )
     return _parse_wine_json(text_block.text)
 
 
