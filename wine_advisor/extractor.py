@@ -1,19 +1,46 @@
 """
-Document processor: uploads wine catalogues / price books to the Files API,
-then asks Claude to extract structured wine data.
+Document processor: sends wine catalogues / price books to Claude and
+extracts structured wine data.
 
-Supports PDF files (passed directly) and plain-text / CSV content.
+PDFs are sent as inline base64 documents; plain-text and CSV are
+embedded directly in the prompt.
 """
 
+import base64
+import io
 import json
+import os
 import re
 from pathlib import Path
 
 import anthropic
+from pypdf import PdfReader, PdfWriter
 
 from database import insert_document, insert_wines, update_document_wine_count
 
-client = anthropic.Anthropic()
+
+def _make_client() -> anthropic.Anthropic:
+    """
+    Build an Anthropic client.
+    - Prefers ANTHROPIC_API_KEY (standard setup, e.g. running on your Mac).
+    - Falls back to the Claude Code session token when running inside the
+      Claude Code on-web environment.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return anthropic.Anthropic()
+
+    token_file = os.environ.get("CLAUDE_SESSION_INGRESS_TOKEN_FILE")
+    if token_file and Path(token_file).exists():
+        token = Path(token_file).read_text().strip()
+        return anthropic.Anthropic(auth_token=token)
+
+    raise RuntimeError(
+        "No Anthropic credentials found. Set the ANTHROPIC_API_KEY environment "
+        "variable before starting the app."
+    )
+
+
+client = _make_client()
 
 EXTRACTION_SYSTEM = """You are a specialist wine data extractor working for a luxury resort buyer.
 Your job is to parse wine trade documents—price books, catalogues, and distributor lists—and
@@ -49,46 +76,60 @@ USER_PROMPT = (
 
 def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     """
-    Upload a file to the Files API, extract wine data with Claude, and
-    persist to the database.
+    Send a file to Claude, extract wine data, and persist to the database.
 
-    Returns (number_of_wines_inserted, file_id).
+    PDFs are base64-encoded and sent inline (no Files API required).
+    Returns (number_of_wines_inserted, filename).
     """
     file_path = Path(file_path)
     filename = file_path.name
     mime = _guess_mime(filename)
 
-    # 1 ── Upload to Files API
-    with file_path.open("rb") as fh:
-        uploaded = client.beta.files.upload(
-            file=(filename, fh, mime),
-        )
-    file_id = uploaded.id
+    # 1 ── Create a document record
+    doc_id = insert_document(filename, filename, supplier)
 
-    # 2 ── Create a document record
-    doc_id = insert_document(filename, file_id, supplier)
-
-    # 3 ── Ask Claude to extract wine data (streaming for large files)
+    # 2 ── Build the content block
     content_block: list = [
         {"type": "text", "text": USER_PROMPT.format(supplier=supplier)},
     ]
 
-    if mime in ("application/pdf",):
-        content_block.append({
-            "type": "document",
-            "source": {"type": "file", "file_id": file_id},
-        })
+    if mime == "application/pdf":
+        wines = _extract_pdf_wines(file_path, supplier)
     else:
-        # Plain text / CSV: read and embed inline
+        # Plain text / CSV: embed inline
         text_content = file_path.read_text(errors="replace")
         content_block[0]["text"] += f"\n\n---\n{text_content}"
 
-    with client.beta.messages.stream(
+        # 3 ── Ask Claude to extract wine data (streaming for large files)
+        wines = _call_claude(content_block)
+
+    # 4 ── (wines already parsed)
+
+    # 5 ── Persist wines
+    inserted = insert_wines(doc_id, wines)
+    update_document_wine_count(doc_id, inserted)
+
+    return inserted, filename
+
+
+def _pdf_chunk_b64(file_path: Path, start_page: int, end_page: int) -> str:
+    """Return a base64-encoded PDF containing pages [start_page, end_page)."""
+    reader = PdfReader(str(file_path))
+    writer = PdfWriter()
+    for i in range(start_page, min(end_page, len(reader.pages))):
+        writer.add_page(reader.pages[i])
+    buf = io.BytesIO()
+    writer.write(buf)
+    return base64.standard_b64encode(buf.getvalue()).decode()
+
+
+def _call_claude(content_block: list) -> list[dict]:
+    """Send one content block to Claude and return parsed wines."""
+    with client.messages.stream(
         model="claude-opus-4-6",
         max_tokens=16000,
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
-        betas=["files-api-2025-04-14"],
     ) as stream:
         final = stream.get_final_message()
         text_block = next((b for b in final.content if b.type == "text"), None)
@@ -97,16 +138,46 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
                 f"Claude returned no text block. Stop reason: {final.stop_reason}. "
                 f"Block types present: {[b.type for b in final.content]}"
             )
-        full_text = text_block.text
+    return _parse_wine_json(text_block.text)
 
-    # 4 ── Parse JSON from response
-    wines = _parse_wine_json(full_text)
 
-    # 5 ── Persist wines
-    inserted = insert_wines(doc_id, wines)
-    update_document_wine_count(doc_id, inserted)
+# Pages per chunk — keeps each request well under the 200k-token limit.
+# A 200-page catalogue at ~1000 tokens/page fits comfortably in 50-page chunks.
+_CHUNK_PAGES = 50
 
-    return inserted, file_id
+
+def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
+    """
+    Split a PDF into page chunks, extract wines from each, and merge results.
+    Falls back to a single request for small PDFs.
+    """
+    reader = PdfReader(str(file_path))
+    total_pages = len(reader.pages)
+    all_wines: list[dict] = []
+
+    for start in range(0, total_pages, _CHUNK_PAGES):
+        end = min(start + _CHUNK_PAGES, total_pages)
+        chunk_b64 = _pdf_chunk_b64(file_path, start, end)
+        content_block = [
+            {
+                "type": "text",
+                "text": (
+                    USER_PROMPT.format(supplier=supplier)
+                    + f" (pages {start + 1}–{end} of {total_pages})"
+                ),
+            },
+            {
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": chunk_b64,
+                },
+            },
+        ]
+        all_wines.extend(_call_claude(content_block))
+
+    return all_wines
 
 
 def delete_file_from_api(file_id: str) -> None:
