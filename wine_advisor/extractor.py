@@ -132,7 +132,10 @@ def _call_claude(content_block: list) -> list[dict]:
         messages=[{"role": "user", "content": content_block}],
     ) as stream:
         final = stream.get_final_message()
-        text_block = next((b for b in final.content if b.type == "text"), None)
+        text_block = next(
+            (b for b in final.content if b.type == "text" and hasattr(b, "text")),
+            None,
+        )
         if text_block is None:
             raise ValueError(
                 f"Claude returned no text block. Stop reason: {final.stop_reason}. "
