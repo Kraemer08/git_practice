@@ -162,8 +162,9 @@ def _call_claude(content_block: list) -> list[dict]:
 
 
 # Pages per chunk — keeps each request well under the 200k-token limit.
-# A 200-page catalogue at ~1000 tokens/page fits comfortably in 50-page chunks.
-_CHUNK_PAGES = 50
+# Wine lists are very dense (~1,300 tokens/page); 20 pages ≈ 26k tokens of
+# input, leaving plenty of headroom in the 64k output budget.
+_CHUNK_PAGES = 20
 
 
 def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
@@ -245,6 +246,20 @@ def _parse_wine_json(raw: str) -> list[dict]:
                 return result
         except json.JSONDecodeError as exc:
             print(f"[extractor] JSON parse failed on extracted array: {exc}")
+
+    # Salvage complete objects from a response truncated at max_tokens.
+    # Find the last complete wine object (ends with "},") and close the array.
+    array_start = cleaned.find("[")
+    last_complete = cleaned.rfind("},")
+    if array_start != -1 and last_complete > array_start:
+        salvage_attempt = cleaned[array_start : last_complete + 1] + "]"
+        try:
+            result = json.loads(salvage_attempt)
+            if isinstance(result, list) and result:
+                print(f"[extractor] Salvaged {len(result)} wines from truncated response")
+                return result
+        except json.JSONDecodeError as exc:
+            print(f"[extractor] Salvage parse also failed: {exc}")
 
     print(f"[extractor] WARNING: could not parse wine JSON. "
           f"Full response was: {raw!r}")
