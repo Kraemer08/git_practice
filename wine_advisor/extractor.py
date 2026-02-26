@@ -1,10 +1,12 @@
 """
-Document processor: uploads wine catalogues / price books to the Files API,
-then asks Claude to extract structured wine data.
+Document processor: sends wine catalogues / price books to Claude and
+extracts structured wine data.
 
-Supports PDF files (passed directly) and plain-text / CSV content.
+PDFs are sent as inline base64 documents; plain-text and CSV are
+embedded directly in the prompt.
 """
 
+import base64
 import json
 import os
 import re
@@ -72,46 +74,44 @@ USER_PROMPT = (
 
 def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     """
-    Upload a file to the Files API, extract wine data with Claude, and
-    persist to the database.
+    Send a file to Claude, extract wine data, and persist to the database.
 
-    Returns (number_of_wines_inserted, file_id).
+    PDFs are base64-encoded and sent inline (no Files API required).
+    Returns (number_of_wines_inserted, filename).
     """
     file_path = Path(file_path)
     filename = file_path.name
     mime = _guess_mime(filename)
 
-    # 1 ── Upload to Files API
-    with file_path.open("rb") as fh:
-        uploaded = client.beta.files.upload(
-            file=(filename, fh, mime),
-        )
-    file_id = uploaded.id
+    # 1 ── Create a document record
+    doc_id = insert_document(filename, filename, supplier)
 
-    # 2 ── Create a document record
-    doc_id = insert_document(filename, file_id, supplier)
-
-    # 3 ── Ask Claude to extract wine data (streaming for large files)
+    # 2 ── Build the content block
     content_block: list = [
         {"type": "text", "text": USER_PROMPT.format(supplier=supplier)},
     ]
 
-    if mime in ("application/pdf",):
+    if mime == "application/pdf":
+        pdf_b64 = base64.standard_b64encode(file_path.read_bytes()).decode()
         content_block.append({
             "type": "document",
-            "source": {"type": "file", "file_id": file_id},
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": pdf_b64,
+            },
         })
     else:
-        # Plain text / CSV: read and embed inline
+        # Plain text / CSV: embed inline
         text_content = file_path.read_text(errors="replace")
         content_block[0]["text"] += f"\n\n---\n{text_content}"
 
-    with client.beta.messages.stream(
+    # 3 ── Ask Claude to extract wine data (streaming for large files)
+    with client.messages.stream(
         model="claude-opus-4-6",
         max_tokens=16000,
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
-        betas=["files-api-2025-04-14"],
     ) as stream:
         final = stream.get_final_message()
         text_block = next((b for b in final.content if b.type == "text"), None)
@@ -129,7 +129,7 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     inserted = insert_wines(doc_id, wines)
     update_document_wine_count(doc_id, inserted)
 
-    return inserted, file_id
+    return inserted, filename
 
 
 def delete_file_from_api(file_id: str) -> None:
