@@ -130,27 +130,29 @@ def _pdf_chunk_b64(file_path: Path, start_page: int, end_page: int) -> str:
 
 def _call_claude(content_block: list) -> list[dict]:
     """Send one content block to Claude and return parsed wines."""
-    response = client.messages.create(
+    with client.messages.stream(
         model="claude-sonnet-4-6",
         max_tokens=64000,
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
-    )
-    print(f"[extractor] stop_reason={response.stop_reason}  "
-          f"output_tokens={response.usage.output_tokens}")
+    ) as stream:
+        final = stream.get_final_message()
 
-    if response.stop_reason == "max_tokens":
+    print(f"[extractor] stop_reason={final.stop_reason}  "
+          f"output_tokens={final.usage.output_tokens}")
+
+    if final.stop_reason == "max_tokens":
         print("[extractor] WARNING: response was cut off at max_tokens — "
               "JSON will likely be incomplete and unparseable.")
 
     text_block = next(
-        (b for b in response.content if b.type == "text"),
+        (b for b in final.content if b.type == "text"),
         None,
     )
     if text_block is None:
         raise ValueError(
-            f"Claude returned no text block. Stop reason: {response.stop_reason}. "
-            f"Block types present: {[b.type for b in response.content]}"
+            f"Claude returned no text block. Stop reason: {final.stop_reason}. "
+            f"Block types present: {[b.type for b in final.content]}"
         )
 
     raw = text_block.text
