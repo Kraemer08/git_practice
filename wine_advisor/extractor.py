@@ -6,6 +6,7 @@ Supports PDF files (passed directly) and plain-text / CSV content.
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -13,7 +14,29 @@ import anthropic
 
 from database import insert_document, insert_wines, update_document_wine_count
 
-client = anthropic.Anthropic()
+
+def _make_client() -> anthropic.Anthropic:
+    """
+    Build an Anthropic client.
+    - Prefers ANTHROPIC_API_KEY (standard setup, e.g. running on your Mac).
+    - Falls back to the Claude Code session token when running inside the
+      Claude Code on-web environment.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return anthropic.Anthropic()
+
+    token_file = os.environ.get("CLAUDE_SESSION_INGRESS_TOKEN_FILE")
+    if token_file and Path(token_file).exists():
+        token = Path(token_file).read_text().strip()
+        return anthropic.Anthropic(auth_token=token)
+
+    raise RuntimeError(
+        "No Anthropic credentials found. Set the ANTHROPIC_API_KEY environment "
+        "variable before starting the app."
+    )
+
+
+client = _make_client()
 
 EXTRACTION_SYSTEM = """You are a specialist wine data extractor working for a luxury resort buyer.
 Your job is to parse wine trade documents—price books, catalogues, and distributor lists—and
