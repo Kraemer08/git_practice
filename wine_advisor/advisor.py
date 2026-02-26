@@ -28,6 +28,15 @@ Your expertise spans:
 - Luxury market positioning and guest experience
 - Supplier relationships and negotiating value
 
+The database contains two types of documents:
+- **supplier catalogues** (doc_type="supplier"): wines available to order from importers/distributors
+- **wine lists** (doc_type="wine_list"): wines currently carried by the resort's restaurants
+
+When searching, use the source parameter in search_wines to distinguish:
+- source="wine_list" → what we currently carry
+- source="supplier" → what we can order
+- source="all" → everything (default)
+
 Your role is to help the resort's wine buyer by:
 1. Answering questions about wines in the database using search_wines and get_wine_details
 2. Helping define restaurant concept profiles using save_concept and list_concepts
@@ -35,10 +44,12 @@ Your role is to help the resort's wine buyer by:
 4. Discussing wine trends, regions, producers, and strategy
 
 When making placement suggestions:
+- First check what the concept already carries (source="wine_list") to avoid duplicates
+- Then find the best additions from supplier catalogues (source="supplier")
 - Tailor selections to each concept's cuisine, price tier, and guest profile
 - Suggest BTG (by the glass) and bottle options with reasoning
 - Note pairing rationale, seasonal considerations, and list balance (reds/whites/sparkling)
-- Flag any gaps in the current database that should be sourced
+- Flag any gaps where no suitable supplier wine exists
 
 Be direct, authoritative, and specific. Use proper wine nomenclature. Reference actual wines
 from the database by name and producer. When you don't find a good match, say so clearly
@@ -80,6 +91,15 @@ TOOLS = [
                 "max_price": {
                     "type": "number",
                     "description": "Maximum bottle price (USD).",
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["all", "supplier", "wine_list"],
+                    "description": (
+                        "Filter by source: 'supplier' for wines available to order from importers, "
+                        "'wine_list' for wines currently on a restaurant's list, "
+                        "'all' for both (default)."
+                    ),
                 },
             },
             "required": [],
@@ -198,6 +218,9 @@ TOOLS = [
 def _execute_tool(name: str, inputs: dict) -> str:
     if name == "search_wines":
         filters = {k: inputs[k] for k in ("style", "country", "min_price", "max_price") if k in inputs}
+        source = inputs.get("source", "all")
+        if source in ("supplier", "wine_list"):
+            filters["doc_type"] = source
         wines = db.search_wines(query=inputs.get("query", ""), filters=filters)
         if not wines:
             return "No wines found matching those criteria."
@@ -252,18 +275,33 @@ def _execute_tool(name: str, inputs: dict) -> str:
         max_price = inputs.get("max_price")
         requirements = inputs.get("requirements", "")
 
-        # Gather wines to work with
-        wine_lists = {}
-        for style in ["white", "red", "sparkling", "rosé", "dessert", "fortified"]:
-            filters: dict = {"style": style}
-            if max_price:
-                filters["max_price"] = max_price
-            wines = db.search_wines(filters=filters, limit=30)
-            if wines:
-                wine_lists[style] = wines
+        def _gather_by_style(doc_type: str) -> dict:
+            result = {}
+            for style in ["white", "red", "sparkling", "rosé", "dessert", "fortified", "orange"]:
+                filters: dict = {"style": style, "doc_type": doc_type}
+                if max_price:
+                    filters["max_price"] = max_price
+                wines = db.search_wines(filters=filters, limit=30)
+                if wines:
+                    result[style] = wines
+            return result
 
-        if not wine_lists:
+        current_list = _gather_by_style("wine_list")
+        available = _gather_by_style("supplier")
+
+        if not current_list and not available:
             return "The wine database is empty. Please upload catalogues first."
+
+        def _format_wines(wines: list, max_show: int = 15) -> str:
+            lines = []
+            for w in wines[:max_show]:
+                lines.append(
+                    f"  [ID {w['id']}] {w.get('vintage','')} {w.get('producer','')} "
+                    f"{w.get('name','')} ({w.get('appellation') or w.get('region','')}, "
+                    f"{w.get('country','')}) ${w.get('price','?')}/{w.get('unit','bottle')} "
+                    f"| {w.get('grape_varieties','')}"
+                )
+            return "\n".join(lines)
 
         context = f"""Concept Profile:
 Name: {concept['name']}
@@ -274,18 +312,23 @@ Wine style notes: {concept.get('wine_style_notes','')}
 Additional notes: {concept.get('additional_notes','')}
 
 Buyer requirements: {requirements or 'None specified'}
-
-Available wines by style:
 """
-        for style, wines in wine_lists.items():
-            context += f"\n{style.upper()} ({len(wines)} options):\n"
-            for w in wines[:15]:
-                context += (
-                    f"  [ID {w['id']}] {w.get('vintage','')} {w.get('producer','')} "
-                    f"{w.get('name','')} ({w.get('appellation') or w.get('region','')}, "
-                    f"{w.get('country','')}) ${w.get('price','?')}/{w.get('unit','bottle')} "
-                    f"| {w.get('grape_varieties','')}\n"
-                )
+
+        if current_list:
+            context += "\n── CURRENTLY ON THE WINE LIST ──\n"
+            for style, wines in current_list.items():
+                context += f"\n{style.upper()} ({len(wines)} wines currently carried):\n"
+                context += _format_wines(wines) + "\n"
+        else:
+            context += "\n── CURRENTLY ON THE WINE LIST ──\nNo wine list uploaded yet.\n"
+
+        if available:
+            context += "\n── AVAILABLE FROM SUPPLIER CATALOGUES ──\n"
+            for style, wines in available.items():
+                context += f"\n{style.upper()} ({len(wines)} options available to order):\n"
+                context += _format_wines(wines) + "\n"
+        else:
+            context += "\n── AVAILABLE FROM SUPPLIER CATALOGUES ──\nNo supplier catalogues uploaded yet.\n"
 
         return context
 

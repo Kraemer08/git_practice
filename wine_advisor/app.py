@@ -77,6 +77,9 @@ def api_upload():
         return _err(f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXT)}")
 
     supplier = request.form.get("supplier", "Unknown Supplier").strip() or "Unknown Supplier"
+    doc_type = request.form.get("doc_type", "supplier")
+    if doc_type not in ("supplier", "wine_list"):
+        doc_type = "supplier"
 
     # Save locally first
     safe_name = secure_filename(file.filename)
@@ -84,7 +87,7 @@ def api_upload():
     file.save(tmp_path)
 
     try:
-        count, file_id = upload_and_extract(tmp_path, supplier)
+        count, file_id = upload_and_extract(tmp_path, supplier, doc_type)
     except Exception as exc:
         import traceback
         traceback.print_exc()

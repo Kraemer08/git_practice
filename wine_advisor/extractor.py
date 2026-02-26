@@ -74,7 +74,8 @@ USER_PROMPT = (
 )
 
 
-def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
+def upload_and_extract(file_path: str | Path, supplier: str,
+                       doc_type: str = "supplier") -> tuple[int, str]:
     """
     Send a file to Claude, extract wine data, and persist to the database.
 
@@ -86,7 +87,7 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     mime = _guess_mime(filename)
 
     # 1 ── Create a document record
-    doc_id = insert_document(filename, filename, supplier)
+    doc_id = insert_document(filename, filename, supplier, doc_type)
 
     try:
         # 2 ── Build the content block

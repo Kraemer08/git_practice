@@ -27,6 +27,7 @@ def init_db() -> None:
             filename    TEXT    NOT NULL,
             file_id     TEXT    NOT NULL,
             supplier    TEXT,
+            doc_type    TEXT    NOT NULL DEFAULT 'supplier',
             wine_count  INTEGER DEFAULT 0,
             uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -90,18 +91,26 @@ def init_db() -> None:
         END;
     """)
 
+    # Migrate existing databases that predate the doc_type column
+    try:
+        conn.execute("ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'supplier'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     conn.commit()
     conn.close()
 
 
 # ── Documents ──────────────────────────────────────────────────────────────────
 
-def insert_document(filename: str, file_id: str, supplier: str) -> int:
+def insert_document(filename: str, file_id: str, supplier: str,
+                    doc_type: str = "supplier") -> int:
     conn = get_conn()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO documents (filename, file_id, supplier) VALUES (?,?,?)",
-        (filename, file_id, supplier),
+        "INSERT INTO documents (filename, file_id, supplier, doc_type) VALUES (?,?,?,?)",
+        (filename, file_id, supplier, doc_type),
     )
     doc_id = c.lastrowid
     conn.commit()
@@ -194,32 +203,38 @@ def search_wines(query: str = "", filters: dict | None = None, limit: int = 50) 
     filter_clauses: list[str] = []
     filter_params: list = []
     if filters.get("style"):
-        filter_clauses.append("LOWER(style) = LOWER(?)")
+        filter_clauses.append("LOWER(w.style) = LOWER(?)")
         filter_params.append(filters["style"])
     if filters.get("country"):
-        filter_clauses.append("LOWER(country) = LOWER(?)")
+        filter_clauses.append("LOWER(w.country) = LOWER(?)")
         filter_params.append(filters["country"])
     if filters.get("max_price") is not None:
-        filter_clauses.append("price IS NOT NULL AND price <= ?")
+        filter_clauses.append("w.price IS NOT NULL AND w.price <= ?")
         filter_params.append(float(filters["max_price"]))
     if filters.get("min_price") is not None:
-        filter_clauses.append("price IS NOT NULL AND price >= ?")
+        filter_clauses.append("w.price IS NOT NULL AND w.price >= ?")
         filter_params.append(float(filters["min_price"]))
+    if filters.get("doc_type"):
+        filter_clauses.append("d.doc_type = ?")
+        filter_params.append(filters["doc_type"])
 
     if query:
-        # FTS query: MATCH goes in the WHERE clause; additional filters join via AND
         extra = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
         rows = conn.execute(
             f"""SELECT w.* FROM wines w
                JOIN wines_fts f ON w.id = f.rowid
+               JOIN documents d ON w.document_id = d.id
                WHERE wines_fts MATCH ?{extra}
                ORDER BY rank LIMIT ?""",
             (query, *filter_params, limit),
         ).fetchall()
     else:
-        where = ("WHERE " + " AND ".join(filter_clauses)) if filter_clauses else ""
+        clauses_str = ("WHERE " + " AND ".join(filter_clauses)) if filter_clauses else ""
         rows = conn.execute(
-            f"SELECT * FROM wines {where} ORDER BY producer, name LIMIT ?",
+            f"""SELECT w.* FROM wines w
+               JOIN documents d ON w.document_id = d.id
+               {clauses_str}
+               ORDER BY w.producer, w.name LIMIT ?""",
             (*filter_params, limit),
         ).fetchall()
 
