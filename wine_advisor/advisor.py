@@ -303,7 +303,7 @@ def chat_stream(messages: list[dict]) -> Generator[str, None, None]:
     while True:
         with client.messages.stream(
             model="claude-opus-4-6",
-            max_tokens=4096,
+            max_tokens=16000,
             thinking={"type": "enabled", "budget_tokens": 8000},
             system=SYSTEM_PROMPT,
             tools=TOOLS,
