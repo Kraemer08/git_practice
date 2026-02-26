@@ -85,13 +85,19 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
 
     with client.beta.messages.stream(
         model="claude-opus-4-6",
-        max_tokens=8192,
+        max_tokens=16000,
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
         betas=["files-api-2025-04-14"],
     ) as stream:
         final = stream.get_final_message()
-        full_text = next(b.text for b in final.content if b.type == "text")
+        text_block = next((b for b in final.content if b.type == "text"), None)
+        if text_block is None:
+            raise ValueError(
+                f"Claude returned no text block. Stop reason: {final.stop_reason}. "
+                f"Block types present: {[b.type for b in final.content]}"
+            )
+        full_text = text_block.text
 
     # 4 ── Parse JSON from response
     wines = _parse_wine_json(full_text)
