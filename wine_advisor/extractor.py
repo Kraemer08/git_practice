@@ -132,7 +132,7 @@ def _call_claude(content_block: list) -> list[dict]:
     """Send one content block to Claude and return parsed wines."""
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=16000,
+        max_tokens=64000,
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
     )
