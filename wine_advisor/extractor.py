@@ -136,6 +136,13 @@ def _call_claude(content_block: list) -> list[dict]:
         system=EXTRACTION_SYSTEM,
         messages=[{"role": "user", "content": content_block}],
     )
+    print(f"[extractor] stop_reason={response.stop_reason}  "
+          f"output_tokens={response.usage.output_tokens}")
+
+    if response.stop_reason == "max_tokens":
+        print("[extractor] WARNING: response was cut off at max_tokens — "
+              "JSON will likely be incomplete and unparseable.")
+
     text_block = next(
         (b for b in response.content if b.type == "text"),
         None,
@@ -145,7 +152,10 @@ def _call_claude(content_block: list) -> list[dict]:
             f"Claude returned no text block. Stop reason: {response.stop_reason}. "
             f"Block types present: {[b.type for b in response.content]}"
         )
-    return _parse_wine_json(text_block.text)
+
+    raw = text_block.text
+    print(f"[extractor] raw response (first 300 chars): {raw[:300]!r}")
+    return _parse_wine_json(raw)
 
 
 # Pages per chunk — keeps each request well under the 200k-token limit.
@@ -164,6 +174,7 @@ def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
 
     for start in range(0, total_pages, _CHUNK_PAGES):
         end = min(start + _CHUNK_PAGES, total_pages)
+        print(f"[extractor] processing pages {start + 1}–{end} of {total_pages}")
         chunk_b64 = _pdf_chunk_b64(file_path, start, end)
         content_block = [
             {
@@ -182,7 +193,9 @@ def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
                 },
             },
         ]
-        all_wines.extend(_call_claude(content_block))
+        chunk_wines = _call_claude(content_block)
+        print(f"[extractor] pages {start + 1}–{end}: found {len(chunk_wines)} wines")
+        all_wines.extend(chunk_wines)
 
     return all_wines
 
@@ -210,24 +223,26 @@ def _guess_mime(filename: str) -> str:
 def _parse_wine_json(raw: str) -> list[dict]:
     """Extract a JSON array from Claude's text response."""
     # Strip markdown code fences if present
-    raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
+    cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip()
 
     # Try direct parse first
     try:
-        result = json.loads(raw)
+        result = json.loads(cleaned)
         if isinstance(result, list):
             return result
     except json.JSONDecodeError:
         pass
 
     # Find the first [...] block
-    match = re.search(r"\[.*\]", raw, re.DOTALL)
+    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
     if match:
         try:
             result = json.loads(match.group())
             if isinstance(result, list):
                 return result
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            print(f"[extractor] JSON parse failed on extracted array: {exc}")
 
+    print(f"[extractor] WARNING: could not parse wine JSON. "
+          f"Full response was: {raw!r}")
     return []
