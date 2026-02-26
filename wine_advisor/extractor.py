@@ -16,7 +16,7 @@ from pathlib import Path
 import anthropic
 from pypdf import PdfReader, PdfWriter
 
-from database import insert_document, insert_wines, update_document_wine_count
+from database import delete_document, insert_document, insert_wines, update_document_wine_count
 
 
 def _make_client() -> anthropic.Anthropic:
@@ -88,26 +88,31 @@ def upload_and_extract(file_path: str | Path, supplier: str) -> tuple[int, str]:
     # 1 ── Create a document record
     doc_id = insert_document(filename, filename, supplier)
 
-    # 2 ── Build the content block
-    content_block: list = [
-        {"type": "text", "text": USER_PROMPT.format(supplier=supplier)},
-    ]
+    try:
+        # 2 ── Build the content block
+        content_block: list = [
+            {"type": "text", "text": USER_PROMPT.format(supplier=supplier)},
+        ]
 
-    if mime == "application/pdf":
-        wines = _extract_pdf_wines(file_path, supplier)
-    else:
-        # Plain text / CSV: embed inline
-        text_content = file_path.read_text(errors="replace")
-        content_block[0]["text"] += f"\n\n---\n{text_content}"
+        if mime == "application/pdf":
+            wines = _extract_pdf_wines(file_path, supplier)
+        else:
+            # Plain text / CSV: embed inline
+            text_content = file_path.read_text(errors="replace")
+            content_block[0]["text"] += f"\n\n---\n{text_content}"
 
-        # 3 ── Ask Claude to extract wine data (streaming for large files)
-        wines = _call_claude(content_block)
+            # 3 ── Ask Claude to extract wine data (streaming for large files)
+            wines = _call_claude(content_block)
 
-    # 4 ── (wines already parsed)
+        # 4 ── (wines already parsed)
 
-    # 5 ── Persist wines
-    inserted = insert_wines(doc_id, wines)
-    update_document_wine_count(doc_id, inserted)
+        # 5 ── Persist wines
+        inserted = insert_wines(doc_id, wines)
+        update_document_wine_count(doc_id, inserted)
+    except Exception:
+        # Roll back the document record so no orphaned 0-wine entries remain
+        delete_document(doc_id)
+        raise
 
     return inserted, filename
 
