@@ -33,6 +33,7 @@ ALLOWED_EXT = {".pdf", ".csv", ".txt"}
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ def api_upload():
         import traceback
         traceback.print_exc()
         tmp_path.unlink(missing_ok=True)
-        return _err(f"Extraction failed: {exc}", 500)
+        return _err(f"Extraction failed ({type(exc).__name__}): {exc}", 500)
     finally:
         tmp_path.unlink(missing_ok=True)
 
