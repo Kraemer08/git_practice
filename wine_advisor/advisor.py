@@ -301,14 +301,12 @@ def chat_stream(messages: list[dict]) -> Generator[str, None, None]:
     messages: full conversation history (user + assistant turns).
     """
     while True:
-        with client.beta.messages.stream(
+        with client.messages.stream(
             model="claude-opus-4-6",
             max_tokens=16000,
-            thinking={"type": "enabled", "budget_tokens": 8000},
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=messages,
-            betas=["interleaved-thinking-2025-05-14"],
         ) as stream:
             # Yield text tokens in real time as they arrive
             for text in stream.text_stream:
