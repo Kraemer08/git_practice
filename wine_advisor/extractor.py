@@ -2,15 +2,14 @@
 Document processor: sends wine catalogues / price books to Claude and
 extracts structured wine data.
 
-PDFs are sent as inline base64 documents; plain-text and CSV are
-embedded directly in the prompt.
+Extraction uses Claude's tool_use feature (record_wines tool) for robust,
+schema-validated output — eliminating fragile free-text JSON parsing.
+PDFs are chunked into _CHUNK_PAGES-page sections to stay well within token limits.
 """
 
 import base64
 import io
-import json
 import os
-import re
 from pathlib import Path
 
 import anthropic
@@ -43,35 +42,71 @@ def _make_client() -> anthropic.Anthropic:
 client = _make_client()
 
 EXTRACTION_SYSTEM = """You are a specialist wine data extractor working for a luxury resort buyer.
-Your job is to parse wine trade documents—price books, catalogues, and distributor lists—and
-return every wine product as a clean JSON array.
-
-For each wine include these fields (use null when information is absent):
-  name           – wine label/product name
-  producer       – winery or producer name
-  appellation    – specific AOC / DOC / AVA / GI
-  region         – broader region (e.g. "Burgundy", "Napa Valley")
-  country        – country of origin
-  vintage        – 4-digit year string, or "NV"
-  grape_varieties – array of grape names (["Chardonnay"] or ["Cabernet Sauvignon","Merlot"])
-  style          – one of: red, white, rosé, sparkling, fortified, dessert, orange
-  price          – numeric price (strip symbols / commas)
-  currency       – ISO code, default "USD"
-  unit           – "bottle", "case/12", "case/6", "magnum", etc.
-  description    – tasting notes or marketing copy (may be null)
-  importer       – importer / distributor name if visible
-  alcohol        – e.g. "13.5%"
-  score          – critic score if listed, e.g. "95 WS"
+Your job is to parse wine trade documents—price books, catalogues, wine lists, and distributor
+lists—and record every wine product using the record_wines tool.
 
 Rules:
-- Return ONLY a valid JSON array—no markdown fences, no commentary.
-- If you find no wines at all, return [].
-- Each wine is a separate object; do not combine products."""
+- Call record_wines exactly once with ALL wines found in the document section.
+- Include every wine you can identify; do not skip any.
+- Use null for any field not present in the source document.
+- Do not combine separate products into one entry."""
 
 USER_PROMPT = (
-    "Extract every wine product from this document and return a JSON array "
-    "following the schema in the system prompt. Document supplier: {supplier}."
+    "Extract every wine product from this document section and call the record_wines tool "
+    "with all wines found. Document supplier/source: {supplier}."
 )
+
+# Using tool_use instead of free-text JSON output means:
+#   - The SDK deserialises each tool call automatically; no parsing needed.
+#   - Schema is enforced by the API; fields have the correct types.
+#   - Far more reliable than extracting a JSON array from prose.
+EXTRACTION_TOOLS = [
+    {
+        "name": "record_wines",
+        "description": (
+            "Record all wines found in the current section of the document. "
+            "Use null for any field not present in the source material."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "wines": {
+                    "type": "array",
+                    "description": "Every wine product found in this document section.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name":            {"type": ["string", "null"], "description": "Wine label/product name"},
+                            "producer":        {"type": ["string", "null"], "description": "Winery or producer name"},
+                            "appellation":     {"type": ["string", "null"], "description": "AOC / DOC / AVA / GI"},
+                            "region":          {"type": ["string", "null"], "description": "Broader region, e.g. Burgundy"},
+                            "country":         {"type": ["string", "null"], "description": "Country of origin"},
+                            "vintage":         {"type": ["string", "null"], "description": "4-digit year or NV"},
+                            "grape_varieties": {
+                                "type": ["array", "null"],
+                                "items": {"type": "string"},
+                                "description": "List of grape variety names",
+                            },
+                            "style": {
+                                "type": ["string", "null"],
+                                "description": "One of: red, white, rosé, sparkling, fortified, dessert, orange",
+                            },
+                            "price":       {"type": ["number", "null"], "description": "Numeric price (strip currency symbols)"},
+                            "currency":    {"type": ["string", "null"], "description": "ISO currency code, default USD"},
+                            "unit":        {"type": ["string", "null"], "description": "bottle / case/12 / case/6 / magnum etc."},
+                            "description": {"type": ["string", "null"], "description": "Tasting notes or marketing copy"},
+                            "importer":    {"type": ["string", "null"], "description": "Importer or distributor name"},
+                            "alcohol":     {"type": ["string", "null"], "description": "ABV e.g. 13.5%"},
+                            "score":       {"type": ["string", "null"], "description": "Critic score if listed, e.g. 95 WS"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            "required": ["wines"],
+        },
+    }
+]
 
 
 def upload_and_extract(file_path: str | Path, supplier: str,
@@ -86,32 +121,22 @@ def upload_and_extract(file_path: str | Path, supplier: str,
     filename = file_path.name
     mime = _guess_mime(filename)
 
-    # 1 ── Create a document record
     doc_id = insert_document(filename, filename, supplier, doc_type)
 
     try:
-        # 2 ── Build the content block
-        content_block: list = [
-            {"type": "text", "text": USER_PROMPT.format(supplier=supplier)},
-        ]
-
         if mime == "application/pdf":
             wines = _extract_pdf_wines(file_path, supplier)
         else:
-            # Plain text / CSV: embed inline
             text_content = file_path.read_text(errors="replace")
-            content_block[0]["text"] += f"\n\n---\n{text_content}"
-
-            # 3 ── Ask Claude to extract wine data (streaming for large files)
+            content_block = [{
+                "type": "text",
+                "text": USER_PROMPT.format(supplier=supplier) + f"\n\n---\n{text_content}",
+            }]
             wines = _call_claude(content_block)
 
-        # 4 ── (wines already parsed)
-
-        # 5 ── Persist wines
         inserted = insert_wines(doc_id, wines)
         update_document_wine_count(doc_id, inserted)
     except Exception:
-        # Roll back the document record so no orphaned 0-wine entries remain
         delete_document(doc_id)
         raise
 
@@ -130,11 +155,15 @@ def _pdf_chunk_b64(file_path: Path, start_page: int, end_page: int) -> str:
 
 
 def _call_claude(content_block: list) -> list[dict]:
-    """Send one content block to Claude and return parsed wines."""
+    """
+    Send one content block to Claude and return extracted wines via tool_use.
+    """
     with client.messages.stream(
         model="claude-sonnet-4-6",
-        max_tokens=64000,
+        max_tokens=32000,
         system=EXTRACTION_SYSTEM,
+        tools=EXTRACTION_TOOLS,
+        tool_choice={"type": "required"},   # Claude MUST call record_wines
         messages=[{"role": "user", "content": content_block}],
     ) as stream:
         final = stream.get_final_message()
@@ -142,36 +171,29 @@ def _call_claude(content_block: list) -> list[dict]:
     print(f"[extractor] stop_reason={final.stop_reason}  "
           f"output_tokens={final.usage.output_tokens}")
 
-    if final.stop_reason == "max_tokens":
-        print("[extractor] WARNING: response was cut off at max_tokens — "
-              "JSON will likely be incomplete and unparseable.")
+    wines: list[dict] = []
+    for block in final.content:
+        if block.type == "tool_use" and block.name == "record_wines":
+            batch = block.input.get("wines") or []
+            print(f"[extractor] tool_use block yielded {len(batch)} wines")
+            wines.extend(batch)
 
-    text_block = next(
-        (b for b in final.content if b.type == "text"),
-        None,
-    )
-    if text_block is None:
-        raise ValueError(
-            f"Claude returned no text block. Stop reason: {final.stop_reason}. "
-            f"Block types present: {[b.type for b in final.content]}"
-        )
+    if not wines and final.stop_reason not in ("tool_use", "end_turn"):
+        print(f"[extractor] WARNING: no wines returned. "
+              f"stop_reason={final.stop_reason}  "
+              f"content_types={[b.type for b in final.content]}")
 
-    raw = text_block.text
-    print(f"[extractor] raw response (first 300 chars): {raw[:300]!r}")
-    return _parse_wine_json(raw)
+    return wines
 
 
-# Pages per chunk — keeps each request well under the 200k-token limit.
-# Wine lists are very dense (~1,300 tokens/page); 20 pages ≈ 26k tokens of
-# input, leaving plenty of headroom in the 64k output budget.
-_CHUNK_PAGES = 20
+# PDF chunk size.  10 pages per API call keeps output tokens well under
+# 32k even for very dense wine lists (~30 wines/page → ~18k tokens/chunk).
+# For an 81-page wine list this means ~9 API calls; acceptable and reliable.
+_CHUNK_PAGES = 10
 
 
 def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
-    """
-    Split a PDF into page chunks, extract wines from each, and merge results.
-    Falls back to a single request for small PDFs.
-    """
+    """Split a PDF into page chunks, extract wines from each, and merge."""
     reader = PdfReader(str(file_path))
     total_pages = len(reader.pages)
     all_wines: list[dict] = []
@@ -222,45 +244,3 @@ def _guess_mime(filename: str) -> str:
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".xls":  "application/vnd.ms-excel",
     }.get(ext, "application/octet-stream")
-
-
-def _parse_wine_json(raw: str) -> list[dict]:
-    """Extract a JSON array from Claude's text response."""
-    # Strip markdown code fences if present
-    cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip()
-
-    # Try direct parse first
-    try:
-        result = json.loads(cleaned)
-        if isinstance(result, list):
-            return result
-    except json.JSONDecodeError:
-        pass
-
-    # Find the first [...] block
-    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
-    if match:
-        try:
-            result = json.loads(match.group())
-            if isinstance(result, list):
-                return result
-        except json.JSONDecodeError as exc:
-            print(f"[extractor] JSON parse failed on extracted array: {exc}")
-
-    # Salvage complete objects from a response truncated at max_tokens.
-    # Find the last complete wine object (ends with "},") and close the array.
-    array_start = cleaned.find("[")
-    last_complete = cleaned.rfind("},")
-    if array_start != -1 and last_complete > array_start:
-        salvage_attempt = cleaned[array_start : last_complete + 1] + "]"
-        try:
-            result = json.loads(salvage_attempt)
-            if isinstance(result, list) and result:
-                print(f"[extractor] Salvaged {len(result)} wines from truncated response")
-                return result
-        except json.JSONDecodeError as exc:
-            print(f"[extractor] Salvage parse also failed: {exc}")
-
-    print(f"[extractor] WARNING: could not parse wine JSON. "
-          f"Full response was: {raw!r}")
-    return []
