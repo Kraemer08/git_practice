@@ -10,6 +10,7 @@ PDFs are chunked into _CHUNK_PAGES-page sections to stay well within token limit
 import base64
 import io
 import os
+import time
 from pathlib import Path
 
 import anthropic
@@ -115,6 +116,8 @@ def upload_and_extract(file_path: str | Path, supplier: str,
     Send a file to Claude, extract wine data, and persist to the database.
 
     PDFs are base64-encoded and sent inline (no Files API required).
+    PDF extraction inserts wines progressively after each chunk so that
+    a transient API failure on one chunk doesn't lose all prior work.
     Returns (number_of_wines_inserted, filename).
     """
     file_path = Path(file_path)
@@ -125,7 +128,7 @@ def upload_and_extract(file_path: str | Path, supplier: str,
 
     try:
         if mime == "application/pdf":
-            wines = _extract_pdf_wines(file_path, supplier)
+            inserted = _extract_pdf_wines(file_path, supplier, doc_id)
         else:
             text_content = file_path.read_text(errors="replace")
             content_block = [{
@@ -133,12 +136,15 @@ def upload_and_extract(file_path: str | Path, supplier: str,
                 "text": USER_PROMPT.format(supplier=supplier) + f"\n\n---\n{text_content}",
             }]
             wines = _call_claude(content_block)
+            inserted = insert_wines(doc_id, wines)
 
-        inserted = insert_wines(doc_id, wines)
         update_document_wine_count(doc_id, inserted)
     except Exception:
         delete_document(doc_id)
         raise
+
+    if inserted == 0:
+        delete_document(doc_id)
 
     return inserted, filename
 
@@ -154,19 +160,40 @@ def _pdf_chunk_b64(file_path: Path, start_page: int, end_page: int) -> str:
     return base64.standard_b64encode(buf.getvalue()).decode()
 
 
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = [2, 4, 8]  # seconds
+
+
 def _call_claude(content_block: list) -> list[dict]:
     """
     Send one content block to Claude and return extracted wines via tool_use.
+    Retries up to 3 times on transient API errors (500, 529, etc.).
     """
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=64000,
-        system=EXTRACTION_SYSTEM,
-        tools=EXTRACTION_TOOLS,
-        tool_choice={"type": "any"},        # Claude MUST call at least one tool
-        messages=[{"role": "user", "content": content_block}],
-    ) as stream:
-        final = stream.get_final_message()
+    last_exc: Exception | None = None
+
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            with client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=64000,
+                system=EXTRACTION_SYSTEM,
+                tools=EXTRACTION_TOOLS,
+                tool_choice={"type": "any"},
+                messages=[{"role": "user", "content": content_block}],
+            ) as stream:
+                final = stream.get_final_message()
+            break  # success
+        except (anthropic.InternalServerError, anthropic.APIStatusError) as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                wait = _RETRY_BACKOFF[attempt]
+                print(f"[extractor] API error (attempt {attempt + 1}/{_MAX_RETRIES + 1}): "
+                      f"{exc}. Retrying in {wait}s…")
+                time.sleep(wait)
+            else:
+                raise
+    else:
+        raise last_exc  # type: ignore[misc]
 
     print(f"[extractor] stop_reason={final.stop_reason}  "
           f"output_tokens={final.usage.output_tokens}")
@@ -192,22 +219,30 @@ def _call_claude(content_block: list) -> list[dict]:
 _CHUNK_PAGES = 5
 
 
-def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
-    """Split a PDF into page chunks, extract wines from each, and merge."""
+def _extract_pdf_wines(file_path: Path, supplier: str, doc_id: int) -> int:
+    """
+    Split a PDF into page chunks, extract wines from each, and insert
+    into the database progressively after each chunk.  If a single chunk
+    fails (even after retries), it is skipped and remaining chunks still
+    proceed — we never lose work that already succeeded.
+    Returns total number of wines inserted.
+    """
     reader = PdfReader(str(file_path))
     total_pages = len(reader.pages)
-    all_wines: list[dict] = []
+    total_inserted = 0
+    failed_chunks: list[str] = []
 
     for start in range(0, total_pages, _CHUNK_PAGES):
         end = min(start + _CHUNK_PAGES, total_pages)
-        print(f"[extractor] processing pages {start + 1}–{end} of {total_pages}")
+        label = f"pages {start + 1}–{end}"
+        print(f"[extractor] processing {label} of {total_pages}")
         chunk_b64 = _pdf_chunk_b64(file_path, start, end)
         content_block = [
             {
                 "type": "text",
                 "text": (
                     USER_PROMPT.format(supplier=supplier)
-                    + f" (pages {start + 1}–{end} of {total_pages})"
+                    + f" ({label} of {total_pages})"
                 ),
             },
             {
@@ -219,11 +254,22 @@ def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
                 },
             },
         ]
-        chunk_wines = _call_claude(content_block)
-        print(f"[extractor] pages {start + 1}–{end}: found {len(chunk_wines)} wines")
-        all_wines.extend(chunk_wines)
+        try:
+            chunk_wines = _call_claude(content_block)
+        except Exception as exc:
+            print(f"[extractor] ERROR: {label} failed after retries: {exc}. Skipping.")
+            failed_chunks.append(label)
+            continue
 
-    return all_wines
+        inserted = insert_wines(doc_id, chunk_wines)
+        total_inserted += inserted
+        print(f"[extractor] {label}: inserted {inserted} wines (running total: {total_inserted})")
+
+    if failed_chunks:
+        print(f"[extractor] WARNING: {len(failed_chunks)} chunk(s) failed: {', '.join(failed_chunks)}. "
+              f"Successfully extracted {total_inserted} wines from remaining chunks.")
+
+    return total_inserted
 
 
 def delete_file_from_api(file_id: str) -> None:
