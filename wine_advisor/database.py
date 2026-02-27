@@ -134,6 +134,13 @@ def list_documents() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def update_document_supplier(doc_id: int, supplier: str) -> None:
+    conn = get_conn()
+    conn.execute("UPDATE documents SET supplier=? WHERE id=?", (supplier, doc_id))
+    conn.commit()
+    conn.close()
+
+
 def delete_document(doc_id: int) -> None:
     conn = get_conn()
     conn.execute("DELETE FROM wines WHERE document_id=?", (doc_id,))

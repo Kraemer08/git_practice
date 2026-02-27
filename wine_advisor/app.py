@@ -103,6 +103,16 @@ def api_upload():
     })
 
 
+@app.route("/api/documents/<int:doc_id>", methods=["PATCH"])
+def api_update_document(doc_id):
+    data = request.get_json(silent=True) or {}
+    supplier = data.get("supplier", "").strip()
+    if not supplier:
+        return _err("'supplier' is required.")
+    db.update_document_supplier(doc_id, supplier)
+    return jsonify({"message": "Document updated."})
+
+
 @app.route("/api/documents/<int:doc_id>", methods=["DELETE"])
 def api_delete_document(doc_id):
     docs = db.list_documents()

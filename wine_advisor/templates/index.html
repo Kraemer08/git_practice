@@ -190,6 +190,8 @@
     .del-btn { background: none; border: none; cursor: pointer; color: var(--muted);
                font-size: 1rem; padding: 2px 6px; border-radius: 4px; }
     .del-btn:hover { color: #e05; background: rgba(220,0,80,.1); }
+    .editable-name { cursor: pointer; border-bottom: 1px dashed transparent; transition: .15s; }
+    .editable-name:hover { border-bottom-color: var(--gold); color: var(--gold); }
 
     /* ── Wines panel ─────────────────────────────────────── */
     #panel-wines { flex-direction: column; overflow: hidden; }
@@ -713,10 +715,13 @@ async function loadDocuments() {
       const typeBadge = isWineList
         ? '<span class="badge" style="background:#1a3a2a;color:#6fcf97;border:1px solid #2d6a4f">Wine List</span>'
         : '<span class="badge" style="background:#2a1a0e;color:#c9a84c;border:1px solid #5a3a1a">Supplier</span>';
+      const nameLabel = isWineList ? 'Outlet' : 'Supplier';
       return `<tr>
-        <td>${d.filename}</td>
+        <td style="font-family:sans-serif;font-size:.8rem;color:var(--muted)">${d.filename}</td>
         <td>${typeBadge}</td>
-        <td>${d.supplier || '—'}</td>
+        <td title="Click to rename">
+          <span class="editable-name" onclick="editDocName(this, ${d.id})">${d.supplier || '—'}</span>
+        </td>
         <td><span class="badge badge-wine">${d.wine_count} wines</span></td>
         <td style="font-family:sans-serif;font-size:.78rem;color:var(--muted)">${d.uploaded_at ? d.uploaded_at.slice(0,16) : ''}</td>
         <td><button class="del-btn" onclick="deleteDoc(${d.id})" title="Delete">&#128465;</button></td>
@@ -729,6 +734,42 @@ async function deleteDoc(id) {
   if (!confirm('Delete this catalogue and all its wines?')) return;
   await fetch('/api/documents/' + id, { method: 'DELETE' });
   loadDocuments(); loadStats();
+}
+
+function editDocName(span, docId) {
+  const current = span.textContent === '—' ? '' : span.textContent;
+  const input = document.createElement('input');
+  input.value = current;
+  input.style.cssText = 'background:var(--card);border:1px solid var(--gold);border-radius:4px;padding:3px 8px;color:var(--text);font-family:inherit;font-size:.84rem;width:180px';
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+
+  async function save() {
+    const newName = input.value.trim();
+    const display = newName || current || '—';
+    const newSpan = document.createElement('span');
+    newSpan.className = 'editable-name';
+    newSpan.title = 'Click to rename';
+    newSpan.textContent = display;
+    newSpan.onclick = () => editDocName(newSpan, docId);
+    input.replaceWith(newSpan);
+    if (newName && newName !== current) {
+      await fetch(`/api/documents/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplier: newName }),
+      });
+      loadWineListDocs(); // Refresh wine list sidebar
+      toast('Name updated.');
+    }
+  }
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = current; input.blur(); }
+  });
 }
 
 /* ── Wines ──────────────────────────────────────────────── */
