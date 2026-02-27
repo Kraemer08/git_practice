@@ -163,7 +163,7 @@ def _call_claude(content_block: list) -> list[dict]:
         max_tokens=32000,
         system=EXTRACTION_SYSTEM,
         tools=EXTRACTION_TOOLS,
-        tool_choice={"type": "required"},   # Claude MUST call record_wines
+        tool_choice={"type": "any"},        # Claude MUST call at least one tool
         messages=[{"role": "user", "content": content_block}],
     ) as stream:
         final = stream.get_final_message()
