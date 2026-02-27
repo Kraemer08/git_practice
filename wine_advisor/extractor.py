@@ -160,7 +160,7 @@ def _call_claude(content_block: list) -> list[dict]:
     """
     with client.messages.stream(
         model="claude-sonnet-4-6",
-        max_tokens=32000,
+        max_tokens=64000,
         system=EXTRACTION_SYSTEM,
         tools=EXTRACTION_TOOLS,
         tool_choice={"type": "any"},        # Claude MUST call at least one tool
@@ -186,10 +186,10 @@ def _call_claude(content_block: list) -> list[dict]:
     return wines
 
 
-# PDF chunk size.  10 pages per API call keeps output tokens well under
-# 32k even for very dense wine lists (~30 wines/page → ~18k tokens/chunk).
-# For an 81-page wine list this means ~9 API calls; acceptable and reliable.
-_CHUNK_PAGES = 10
+# PDF chunk size.  5 pages per API call keeps output tokens well within the
+# 64k budget even for very dense index/listing pages (~50 wines/page →
+# ~25k tokens/chunk worst case).  An 81-page wine list = ~17 API calls.
+_CHUNK_PAGES = 5
 
 
 def _extract_pdf_wines(file_path: Path, supplier: str) -> list[dict]:
