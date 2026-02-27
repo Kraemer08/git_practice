@@ -217,6 +217,9 @@ def search_wines(query: str = "", filters: dict | None = None, limit: int = 50) 
     if filters.get("doc_type"):
         filter_clauses.append("d.doc_type = ?")
         filter_params.append(filters["doc_type"])
+    if filters.get("doc_id") is not None:
+        filter_clauses.append("w.document_id = ?")
+        filter_params.append(int(filters["doc_id"]))
 
     if query:
         extra = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
@@ -240,6 +243,26 @@ def search_wines(query: str = "", filters: dict | None = None, limit: int = 50) 
 
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_document_stats(doc_id: int) -> dict:
+    """Return countries and styles present in a specific document."""
+    conn = get_conn()
+    stats = {
+        "countries": [r[0] for r in conn.execute(
+            "SELECT DISTINCT country FROM wines WHERE document_id=? AND country IS NOT NULL ORDER BY country",
+            (doc_id,),
+        ).fetchall()],
+        "styles": [r[0] for r in conn.execute(
+            "SELECT DISTINCT style FROM wines WHERE document_id=? AND style IS NOT NULL ORDER BY style",
+            (doc_id,),
+        ).fetchall()],
+        "total": conn.execute(
+            "SELECT COUNT(*) FROM wines WHERE document_id=?", (doc_id,)
+        ).fetchone()[0],
+    }
+    conn.close()
+    return stats
 
 
 def get_wine(wine_id: int) -> dict | None:

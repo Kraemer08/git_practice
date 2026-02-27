@@ -257,6 +257,32 @@
     .modal-close { float: right; background: none; border: none; color: var(--muted);
                    font-size: 1.3rem; cursor: pointer; }
 
+    /* ── Wine List panel ─────────────────────────────────── */
+    #panel-winelist { flex-direction: column; overflow: hidden; }
+    .winelist-layout { flex: 1; display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
+    .wl-docs-pane {
+      background: var(--surface); border-right: 1px solid var(--border);
+      overflow-y: auto; padding: 16px 12px;
+    }
+    .wl-doc-item {
+      padding: 10px 12px; border-radius: var(--r); cursor: pointer;
+      margin-bottom: 6px; border: 1px solid var(--border); background: var(--card); transition: .15s;
+    }
+    .wl-doc-item:hover { border-color: var(--gold); }
+    .wl-doc-item.selected { border-color: var(--wine); background: rgba(139,38,53,.12); }
+    .wl-doc-item h4 { font-size: .88rem; margin-bottom: 3px; line-height: 1.3; }
+    .wl-doc-item .doc-sub { font-family: sans-serif; font-size: .74rem; color: var(--muted); }
+    .wl-right { display: flex; flex-direction: column; overflow: hidden; flex: 1; }
+    .wl-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+    .wl-empty p { font-family: sans-serif; font-size: .9rem; color: var(--muted); text-align: center; max-width: 320px; line-height: 1.7; }
+    .style-pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .style-pill {
+      font-family: sans-serif; font-size: .78rem; padding: 5px 14px; border-radius: 20px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--muted); transition: .15s;
+    }
+    .style-pill:hover { border-color: var(--gold); color: var(--text); }
+    .style-pill.active { background: var(--wine); border-color: var(--wine); color: #fff; }
+
     /* ── Toast ───────────────────────────────────────────── */
     .toast {
       position: fixed; bottom: 24px; right: 24px; background: var(--card);
@@ -283,6 +309,7 @@
       <button class="tab-btn" data-tab="upload">&#128196; Catalogues</button>
       <button class="tab-btn" data-tab="wines">&#128374; Wine Database</button>
       <button class="tab-btn" data-tab="concepts">&#127963; Concepts</button>
+      <button class="tab-btn" data-tab="winelist">&#128203; Wine Lists</button>
     </div>
   </header>
 
@@ -404,6 +431,33 @@
       </div>
     </div>
 
+    <!-- Wine Lists -->
+    <div class="panel" id="panel-winelist">
+      <div class="winelist-layout">
+        <div class="wl-docs-pane">
+          <div class="sidebar-label">Uploaded Wine Lists</div>
+          <div id="wl-docs-list"></div>
+          <button class="btn btn-outline" style="margin-top:12px;font-size:.8rem" onclick="showTab('upload')">+ Upload Wine List</button>
+        </div>
+        <div class="wl-right">
+          <div class="wl-empty" id="wl-empty">
+            <p>Select a wine list from the left panel to browse by style, country, and variety.<br><br>
+               Upload wine lists via the <strong style="color:var(--gold)">Catalogues</strong> tab.</p>
+          </div>
+          <div id="wl-detail" style="display:none;flex-direction:column;overflow:hidden;flex:1">
+            <div class="wines-toolbar">
+              <div class="style-pills" id="wl-style-pills"></div>
+              <select class="filter-select" id="wl-country" onchange="loadWlWines()" style="min-width:140px">
+                <option value="">All countries</option>
+              </select>
+              <input class="search-input" id="wl-search" placeholder="Search wines, producers, grapes…" oninput="debounceWlSearch()" />
+            </div>
+            <div class="wines-grid" id="wl-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /main -->
 </div><!-- /app -->
 
@@ -435,9 +489,10 @@ let searchTimer = null;
 function showTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
-  if (name === 'upload')  loadDocuments();
-  if (name === 'wines')   searchWines();
+  if (name === 'upload')   loadDocuments();
+  if (name === 'wines')    searchWines();
   if (name === 'concepts') loadConcepts();
+  if (name === 'winelist') loadWineListDocs();
 }
 document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -581,15 +636,22 @@ function setSelectedFile(file) {
 }
 
 document.getElementById('doc-type').addEventListener('change', function() {
-  document.getElementById('supplier-field').style.display = this.value === 'wine_list' ? 'none' : '';
+  const lbl = document.querySelector('#supplier-field label');
+  const inp = document.getElementById('supplier-name');
+  if (this.value === 'wine_list') {
+    lbl.textContent = 'Outlet / Concept Name';
+    inp.placeholder = 'e.g. The Terrace, Pool Bar, Private Dining…';
+  } else {
+    lbl.textContent = 'Supplier / Importer name';
+    inp.placeholder = 'e.g. Southern Glazer\'s, Winebow…';
+  }
 });
 
 async function uploadFile() {
   if (!selectedFile) { toast('Please select a file first.', 'error'); return; }
   const docType = document.getElementById('doc-type').value;
-  const supplier = docType === 'wine_list'
-    ? 'Wine List'
-    : (document.getElementById('supplier-name').value.trim() || 'Unknown Supplier');
+  const supplier = document.getElementById('supplier-name').value.trim() ||
+    (docType === 'wine_list' ? 'Wine List' : 'Unknown Supplier');
 
   const prog = document.getElementById('upload-progress');
   const bar = document.getElementById('progress-bar');
@@ -681,7 +743,7 @@ async function searchWines() {
   const country = document.getElementById('filter-country').value;
   const maxPrice = document.getElementById('filter-max-price').value;
 
-  const params = new URLSearchParams({ limit: 100 });
+  const params = new URLSearchParams({ limit: 100, doc_type: 'supplier' });
   if (q) params.set('q', q);
   if (style) params.set('style', style);
   if (country) params.set('country', country);
@@ -864,6 +926,119 @@ async function saveConcept(originalName) {
     loadConcepts();
   } else {
     toast(r.error, 'error');
+  }
+}
+
+/* ── Wine Lists ─────────────────────────────────────────── */
+let selectedWlDocId = null;
+let selectedWlStyle = '';
+let wlSearchTimer = null;
+
+async function loadWineListDocs() {
+  const res = await fetch('/api/documents');
+  const docs = await res.json();
+  const wlDocs = docs.filter(d => d.doc_type === 'wine_list');
+  const list = document.getElementById('wl-docs-list');
+
+  if (!wlDocs.length) {
+    list.innerHTML = '<p style="font-family:sans-serif;font-size:.8rem;color:var(--muted);padding:4px 2px;line-height:1.6">No wine lists uploaded yet.</p>';
+    return;
+  }
+
+  list.innerHTML = wlDocs.map(d => `
+    <div class="wl-doc-item ${d.id === selectedWlDocId ? 'selected' : ''}"
+         onclick="selectWlDoc(${d.id})">
+      <h4>${d.supplier || d.filename}</h4>
+      <div class="doc-sub">${d.wine_count} wines &middot; ${d.filename}</div>
+    </div>`).join('');
+
+  // If one was previously selected and still exists, keep showing its wines
+  if (selectedWlDocId && wlDocs.find(d => d.id === selectedWlDocId)) {
+    document.getElementById('wl-empty').style.display = 'none';
+    document.getElementById('wl-detail').style.display = 'flex';
+  }
+}
+
+async function selectWlDoc(docId) {
+  selectedWlDocId = docId;
+  selectedWlStyle = '';
+  document.getElementById('wl-empty').style.display = 'none';
+  document.getElementById('wl-detail').style.display = 'flex';
+  document.getElementById('wl-search').value = '';
+
+  // Fetch countries + styles for this wine list
+  const res = await fetch(`/api/documents/${docId}/stats`);
+  const stats = await res.json();
+
+  // Style pills
+  const styleOrder = ['red', 'white', 'sparkling', 'rosé', 'fortified', 'dessert', 'orange'];
+  const available = styleOrder.filter(s => (stats.styles || []).map(x => x.toLowerCase()).includes(s));
+  const pills = document.getElementById('wl-style-pills');
+  pills.innerHTML = [
+    '<span class="style-pill active" onclick="setWlStyle(\'\')">All</span>',
+    ...available.map(s =>
+      `<span class="style-pill" onclick="setWlStyle('${s}')">${s.charAt(0).toUpperCase() + s.slice(1)}</span>`)
+  ].join('');
+
+  // Country filter
+  const sel = document.getElementById('wl-country');
+  sel.innerHTML = '<option value="">All countries</option>' +
+    (stats.countries || []).map(c => `<option value="${c}">${c}</option>`).join('');
+
+  // Re-render doc list to update selected state
+  loadWineListDocs();
+  loadWlWines();
+}
+
+function setWlStyle(style) {
+  selectedWlStyle = style;
+  document.querySelectorAll('#wl-style-pills .style-pill').forEach(p => {
+    const isAll = style === '' && p.textContent === 'All';
+    const isMatch = style && p.textContent.toLowerCase() === style;
+    p.classList.toggle('active', isAll || isMatch);
+  });
+  loadWlWines();
+}
+
+function debounceWlSearch() {
+  clearTimeout(wlSearchTimer);
+  wlSearchTimer = setTimeout(loadWlWines, 350);
+}
+
+async function loadWlWines() {
+  if (!selectedWlDocId) return;
+  const q = document.getElementById('wl-search').value;
+  const country = document.getElementById('wl-country').value;
+
+  const params = new URLSearchParams({ doc_id: selectedWlDocId, limit: 150 });
+  if (selectedWlStyle) params.set('style', selectedWlStyle);
+  if (country) params.set('country', country);
+  if (q) params.set('q', q);
+
+  const grid = document.getElementById('wl-grid');
+  grid.innerHTML = '<p style="color:var(--muted);font-family:sans-serif;font-size:.85rem;grid-column:1/-1">Loading…</p>';
+
+  try {
+    const res = await fetch('/api/wines?' + params);
+    const wines = await res.json();
+    if (!wines.length) {
+      grid.innerHTML = '<p style="color:var(--muted);font-family:sans-serif;font-size:.85rem;grid-column:1/-1">No wines match these filters.</p>';
+      return;
+    }
+    grid.innerHTML = wines.map(w => `
+      <div class="wine-card" onclick="showWine(${w.id})">
+        <h3>${w.vintage ? w.vintage + ' ' : ''}${w.name || 'Unnamed'}</h3>
+        <div class="producer">${w.producer || ''} ${w.appellation ? '· ' + w.appellation : ''}</div>
+        <div class="meta">
+          ${w.style ? `<span class="tag">${w.style}</span>` : ''}
+          ${w.country ? `<span class="tag">${w.country}</span>` : ''}
+          ${w.region ? `<span class="tag">${w.region}</span>` : ''}
+          ${w.grape_varieties ? `<span class="tag">${w.grape_varieties.split(',').slice(0, 2).join(', ')}</span>` : ''}
+          ${w.price ? `<span class="price-tag">$${w.price}/${w.unit || 'btl'}</span>` : ''}
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    grid.innerHTML = '<p style="color:var(--muted)">Error loading wines.</p>';
   }
 }
 

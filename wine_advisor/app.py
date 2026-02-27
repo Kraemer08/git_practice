@@ -129,9 +129,22 @@ def api_search_wines():
                 filters[key] = float(v)
             except ValueError:
                 pass
+    if v := request.args.get("doc_type"):
+        if v in ("supplier", "wine_list"):
+            filters["doc_type"] = v
+    if v := request.args.get("doc_id"):
+        try:
+            filters["doc_id"] = int(v)
+        except ValueError:
+            pass
     limit = min(int(request.args.get("limit", 50)), 200)
     wines = db.search_wines(query=query, filters=filters, limit=limit)
     return jsonify(wines)
+
+
+@app.route("/api/documents/<int:doc_id>/stats")
+def api_document_stats(doc_id):
+    return jsonify(db.get_document_stats(doc_id))
 
 
 @app.route("/api/wines/<int:wine_id>")
