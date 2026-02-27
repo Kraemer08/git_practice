@@ -55,7 +55,8 @@ Be direct, authoritative, and specific. Use proper wine nomenclature. Reference 
 from the database by name and producer. When you don't find a good match, say so clearly
 and suggest what styles should be sought from suppliers.
 
-Always think step-by-step when building a wine list recommendation."""
+Always think step-by-step when building a wine list recommendation. Use the minimum
+number of searches needed — typically 2–3 per response turn is sufficient."""
 
 
 # ── Tool definitions ───────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ TOOLS = [
         "description": (
             "Search the wine database by any combination of free-text query and structured filters. "
             "Use this to find wines by name, producer, region, grape variety, style, or description. "
-            "Returns up to 50 matching wines with full details."
+            "Returns up to 15 matching wines."
         ),
         "input_schema": {
             "type": "object",
@@ -221,7 +222,7 @@ def _execute_tool(name: str, inputs: dict) -> str:
         source = inputs.get("source", "all")
         if source in ("supplier", "wine_list"):
             filters["doc_type"] = source
-        wines = db.search_wines(query=inputs.get("query", ""), filters=filters)
+        wines = db.search_wines(query=inputs.get("query", ""), filters=filters, limit=15)
         if not wines:
             return "No wines found matching those criteria."
         summary = []
@@ -345,8 +346,8 @@ def chat_stream(messages: list[dict]) -> Generator[str, None, None]:
     """
     while True:
         with client.messages.stream(
-            model="claude-opus-4-6",
-            max_tokens=16000,
+            model="claude-sonnet-4-6",
+            max_tokens=8000,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=messages,
