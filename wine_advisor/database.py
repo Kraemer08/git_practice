@@ -28,6 +28,8 @@ def init_db() -> None:
             file_id     TEXT    NOT NULL,
             supplier    TEXT,
             doc_type    TEXT    NOT NULL DEFAULT 'supplier',
+            contact_name  TEXT,
+            contact_email TEXT,
             wine_count  INTEGER DEFAULT 0,
             uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -91,12 +93,17 @@ def init_db() -> None:
         END;
     """)
 
-    # Migrate existing databases that predate the doc_type column
-    try:
-        conn.execute("ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'supplier'")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    # Migrate existing databases that predate optional columns
+    for migration in [
+        "ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'supplier'",
+        "ALTER TABLE documents ADD COLUMN contact_name TEXT",
+        "ALTER TABLE documents ADD COLUMN contact_email TEXT",
+    ]:
+        try:
+            conn.execute(migration)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     conn.commit()
     conn.close()
@@ -137,6 +144,16 @@ def list_documents() -> list[dict]:
 def update_document_supplier(doc_id: int, supplier: str) -> None:
     conn = get_conn()
     conn.execute("UPDATE documents SET supplier=? WHERE id=?", (supplier, doc_id))
+    conn.commit()
+    conn.close()
+
+
+def update_document_contacts(doc_id: int, contact_name: str, contact_email: str) -> None:
+    conn = get_conn()
+    conn.execute(
+        "UPDATE documents SET contact_name=?, contact_email=? WHERE id=?",
+        (contact_name or None, contact_email or None, doc_id),
+    )
     conn.commit()
     conn.close()
 

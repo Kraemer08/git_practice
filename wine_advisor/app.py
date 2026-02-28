@@ -106,10 +106,17 @@ def api_upload():
 @app.route("/api/documents/<int:doc_id>", methods=["PATCH"])
 def api_update_document(doc_id):
     data = request.get_json(silent=True) or {}
-    supplier = data.get("supplier", "").strip()
-    if not supplier:
-        return _err("'supplier' is required.")
-    db.update_document_supplier(doc_id, supplier)
+    if "supplier" in data:
+        supplier = data["supplier"].strip()
+        if not supplier:
+            return _err("'supplier' cannot be empty.")
+        db.update_document_supplier(doc_id, supplier)
+    if "contact_name" in data or "contact_email" in data:
+        db.update_document_contacts(
+            doc_id,
+            data.get("contact_name", "").strip(),
+            data.get("contact_email", "").strip(),
+        )
     return jsonify({"message": "Document updated."})
 
 
@@ -187,6 +194,42 @@ def api_save_concept():
         additional_notes=data.get("additional_notes", ""),
     )
     return jsonify({"message": f"Concept '{name}' saved."})
+
+
+# ── Emails ──────────────────────────────────────────────────────────────────────
+
+@app.route("/api/emails/draft-outbound", methods=["POST"])
+def api_draft_outbound_email():
+    data = request.get_json(silent=True) or {}
+    supplier_doc_id = data.get("supplier_doc_id")
+    if not supplier_doc_id:
+        return _err("'supplier_doc_id' is required.")
+    try:
+        from emailer import draft_tasting_request
+        result = draft_tasting_request(
+            int(supplier_doc_id),
+            data.get("concept_name", ""),
+            data.get("notes", ""),
+        )
+        return jsonify(result)
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return _err(str(exc), 500)
+
+
+@app.route("/api/emails/process-inbound", methods=["POST"])
+def api_process_inbound_email():
+    data = request.get_json(silent=True) or {}
+    email_text = data.get("email_text", "").strip()
+    if not email_text:
+        return _err("'email_text' is required.")
+    try:
+        from emailer import process_inbound_email
+        result = process_inbound_email(email_text)
+        return jsonify(result)
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return _err(str(exc), 500)
 
 
 # ── Chat (SSE streaming) ────────────────────────────────────────────────────────

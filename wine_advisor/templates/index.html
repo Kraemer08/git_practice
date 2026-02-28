@@ -259,6 +259,45 @@
     .modal-close { float: right; background: none; border: none; color: var(--muted);
                    font-size: 1.3rem; cursor: pointer; }
 
+    /* ── Emails panel ───────────────────────────────────── */
+    #panel-emails { flex-direction: column; overflow: hidden; }
+    .emails-layout { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidden; }
+    .email-compose-pane {
+      background: var(--surface); border-right: 1px solid var(--border);
+      overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .email-mode-toggle { display: flex; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    .email-mode-btn {
+      flex: 1; padding: 9px 12px; border: none; background: transparent;
+      color: var(--muted); font-family: sans-serif; font-size: .82rem; cursor: pointer; transition: .15s;
+    }
+    .email-mode-btn.active { background: var(--wine); color: #fff; }
+    .email-mode-btn:not(.active):hover { background: var(--card); color: var(--text); }
+    .email-output-pane { display: flex; flex-direction: column; overflow: hidden; padding: 24px; gap: 14px; }
+    .email-output-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+    .email-output-empty p { color: var(--muted); font-family: sans-serif; font-size: .9rem; text-align: center; max-width: 280px; line-height: 1.7; }
+    .email-result { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; }
+    .email-type-chip {
+      display: inline-block; padding: 4px 12px; border-radius: 20px;
+      font-family: sans-serif; font-size: .76rem; font-weight: 600;
+      background: rgba(201,168,76,.15); color: var(--gold); border: 1px solid rgba(201,168,76,.3);
+    }
+    .email-subject-line { font-family: sans-serif; font-size: .82rem; color: var(--muted); }
+    .email-subject-line strong { color: var(--text); }
+    .email-action-items { font-family: sans-serif; font-size: .82rem; }
+    .email-action-items li { margin: 3px 0; color: var(--text); }
+    .email-body-box {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 18px 20px; font-family: 'Georgia', serif; font-size: .9rem; line-height: 1.8;
+      white-space: pre-wrap; overflow-y: auto; flex: 1;
+    }
+    .email-actions { display: flex; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+    .doc-contact {
+      font-family: sans-serif; font-size: .73rem; color: var(--muted);
+      margin-top: 3px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;
+    }
+    .doc-contact:hover { color: var(--gold); }
+
     /* ── Wine List panel ─────────────────────────────────── */
     #panel-winelist { flex-direction: column; overflow: hidden; }
     .winelist-layout { flex: 1; display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
@@ -312,6 +351,7 @@
       <button class="tab-btn" data-tab="wines">&#128374; Wine Database</button>
       <button class="tab-btn" data-tab="concepts">&#127963; Concepts</button>
       <button class="tab-btn" data-tab="winelist">&#128203; Wine Lists</button>
+      <button class="tab-btn" data-tab="emails">&#9993; Emails</button>
     </div>
   </header>
 
@@ -433,6 +473,74 @@
       </div>
     </div>
 
+    <!-- Emails -->
+    <div class="panel" id="panel-emails">
+      <div class="emails-layout">
+
+        <!-- Left: compose -->
+        <div class="email-compose-pane">
+          <div class="email-mode-toggle">
+            <button class="email-mode-btn active" id="email-mode-outbound" onclick="setEmailMode('outbound')">&#128228; Draft Outbound</button>
+            <button class="email-mode-btn" id="email-mode-inbound" onclick="setEmailMode('inbound')">&#128229; Process Inbound</button>
+          </div>
+
+          <!-- Outbound form -->
+          <div id="email-outbound-form">
+            <div class="form-field">
+              <label>Supplier Catalogue</label>
+              <select id="email-supplier-select" class="filter-select" style="width:100%">
+                <option value="">Select a supplier…</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>For Concept <span style="color:var(--muted);font-weight:normal">(optional)</span></label>
+              <select id="email-concept-select" class="filter-select" style="width:100%">
+                <option value="">No specific concept</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>Additional notes <span style="color:var(--muted);font-weight:normal">(optional)</span></label>
+              <textarea id="email-outbound-notes" rows="3"
+                style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;color:var(--text);font-family:inherit;font-size:.88rem;resize:vertical;width:100%"
+                placeholder="e.g. Focus on Burgundy whites; budget under $35/bottle; we're low on BTG sparkling…"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="generateOutboundEmail()">Generate Tasting Email</button>
+          </div>
+
+          <!-- Inbound form -->
+          <div id="email-inbound-form" style="display:none">
+            <div class="form-field">
+              <label>Paste Supplier Email</label>
+              <textarea id="email-inbound-text" rows="14"
+                style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;color:var(--text);font-family:inherit;font-size:.85rem;resize:vertical;width:100%;line-height:1.6"
+                placeholder="Paste the full email text here — subject line, body, and signature…"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="processInboundEmail()">Draft Response</button>
+          </div>
+        </div>
+
+        <!-- Right: output -->
+        <div class="email-output-pane">
+          <div class="email-output-empty" id="email-output-empty">
+            <p>&#9993;<br><br>Generate a tasting request or paste an inbound email to see the AI-drafted response here.</p>
+          </div>
+          <div id="email-result" style="display:none" class="email-result">
+            <div id="email-type-chip" style="display:none" class="email-type-chip"></div>
+            <div id="email-action-items" style="display:none">
+              <div style="font-family:sans-serif;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Action Items</div>
+              <ul class="email-action-items" id="email-action-list"></ul>
+            </div>
+            <div id="email-subject-line" class="email-subject-line"></div>
+            <div class="email-body-box" id="email-body-box"></div>
+            <div class="email-actions">
+              <button class="btn btn-outline" onclick="copyEmailDraft()">&#128203; Copy to Clipboard</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- Wine Lists -->
     <div class="panel" id="panel-winelist">
       <div class="winelist-layout">
@@ -495,6 +603,7 @@ function showTab(name) {
   if (name === 'wines')    searchWines();
   if (name === 'concepts') loadConcepts();
   if (name === 'winelist') loadWineListDocs();
+  if (name === 'emails')   loadEmailSelects();
 }
 document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -716,11 +825,15 @@ async function loadDocuments() {
         ? '<span class="badge" style="background:#1a3a2a;color:#6fcf97;border:1px solid #2d6a4f">Wine List</span>'
         : '<span class="badge" style="background:#2a1a0e;color:#c9a84c;border:1px solid #5a3a1a">Supplier</span>';
       const nameLabel = isWineList ? 'Outlet' : 'Supplier';
+      const contactDisplay = d.contact_name
+        ? `${d.contact_name}${d.contact_email ? ' · ' + d.contact_email : ''}`
+        : '+ Add contact';
       return `<tr>
         <td style="font-family:sans-serif;font-size:.8rem;color:var(--muted)">${d.filename}</td>
         <td>${typeBadge}</td>
-        <td title="Click to rename">
-          <span class="editable-name" onclick="editDocName(this, ${d.id})">${d.supplier || '—'}</span>
+        <td>
+          <span class="editable-name" onclick="editDocName(this, ${d.id})" title="Click to rename">${d.supplier || '—'}</span>
+          <div class="doc-contact" onclick="editDocContact(this, ${d.id}, ${JSON.stringify(d.contact_name||'')}, ${JSON.stringify(d.contact_email||'')})" title="Click to edit contact">${contactDisplay}</div>
         </td>
         <td><span class="badge badge-wine">${d.wine_count} wines</span></td>
         <td style="font-family:sans-serif;font-size:.78rem;color:var(--muted)">${d.uploaded_at ? d.uploaded_at.slice(0,16) : ''}</td>
@@ -769,6 +882,53 @@ function editDocName(span, docId) {
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
     if (e.key === 'Escape') { input.value = current; input.blur(); }
+  });
+}
+
+function editDocContact(div, docId, currentName, currentEmail) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:2px';
+  const mkInput = (val, ph) => {
+    const i = document.createElement('input');
+    i.value = val; i.placeholder = ph;
+    i.style.cssText = 'background:var(--card);border:1px solid var(--gold);border-radius:4px;padding:3px 8px;color:var(--text);font-family:sans-serif;font-size:.78rem;width:200px';
+    return i;
+  };
+  const nameIn  = mkInput(currentName,  'Contact name…');
+  const emailIn = mkInput(currentEmail, 'email@supplier.com…');
+  wrap.appendChild(nameIn); wrap.appendChild(emailIn);
+  div.replaceWith(wrap);
+  nameIn.focus();
+
+  async function save() {
+    const n = nameIn.value.trim();
+    const e = emailIn.value.trim();
+    const newDiv = document.createElement('div');
+    newDiv.className = 'doc-contact';
+    newDiv.title = 'Click to edit contact';
+    newDiv.textContent = n ? `${n}${e ? ' · ' + e : ''}` : '+ Add contact';
+    newDiv.onclick = () => editDocContact(newDiv, docId, n, e);
+    wrap.replaceWith(newDiv);
+    if (n !== currentName || e !== currentEmail) {
+      await fetch(`/api/documents/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_name: n, contact_email: e }),
+      });
+      loadEmailSelects();
+      toast('Contact updated.');
+    }
+  }
+
+  // Save on blur from either field (with small delay to allow focus transfer)
+  let blurTimer;
+  [nameIn, emailIn].forEach(inp => {
+    inp.addEventListener('blur', () => { blurTimer = setTimeout(save, 150); });
+    inp.addEventListener('focus', () => clearTimeout(blurTimer));
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); emailIn.focus(); if (e.target === emailIn) save(); }
+      if (e.key === 'Escape') { nameIn.value = currentName; emailIn.value = currentEmail; save(); }
+    });
   });
 }
 
@@ -967,6 +1127,123 @@ async function saveConcept(originalName) {
     loadConcepts();
   } else {
     toast(r.error, 'error');
+  }
+}
+
+/* ── Emails ─────────────────────────────────────────────── */
+let currentEmailDraft = '';
+
+function setEmailMode(mode) {
+  document.getElementById('email-mode-outbound').classList.toggle('active', mode === 'outbound');
+  document.getElementById('email-mode-inbound').classList.toggle('active',  mode === 'inbound');
+  document.getElementById('email-outbound-form').style.display = mode === 'outbound' ? '' : 'none';
+  document.getElementById('email-inbound-form').style.display  = mode === 'inbound'  ? '' : 'none';
+}
+
+async function loadEmailSelects() {
+  const [docsRes, conceptsRes] = await Promise.all([
+    fetch('/api/documents'), fetch('/api/concepts')
+  ]);
+  const docs     = await docsRes.json();
+  const concepts = await conceptsRes.json();
+
+  const supplierSel = document.getElementById('email-supplier-select');
+  const suppliers = docs.filter(d => d.doc_type === 'supplier');
+  supplierSel.innerHTML = '<option value="">Select a supplier…</option>' +
+    suppliers.map(d => `<option value="${d.id}">${d.supplier || d.filename}${d.contact_name ? ' (' + d.contact_name + ')' : ''}</option>`).join('');
+
+  const conceptSel = document.getElementById('email-concept-select');
+  conceptSel.innerHTML = '<option value="">No specific concept</option>' +
+    concepts.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+}
+
+async function generateOutboundEmail() {
+  const supplierId = document.getElementById('email-supplier-select').value;
+  if (!supplierId) { toast('Please select a supplier catalogue.', 'error'); return; }
+  const conceptName = document.getElementById('email-concept-select').value;
+  const notes       = document.getElementById('email-outbound-notes').value.trim();
+
+  showEmailLoading('Selecting wines and drafting email…');
+
+  try {
+    const res = await fetch('/api/emails/draft-outbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supplier_doc_id: parseInt(supplierId), concept_name: conceptName, notes }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showEmailError(data.error); return; }
+    showEmailResult({ subject: data.subject, body: data.body });
+  } catch(e) { showEmailError(e.message); }
+}
+
+async function processInboundEmail() {
+  const text = document.getElementById('email-inbound-text').value.trim();
+  if (!text) { toast('Please paste an email first.', 'error'); return; }
+
+  showEmailLoading('Classifying email and drafting response…');
+
+  try {
+    const res = await fetch('/api/emails/process-inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_text: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showEmailError(data.error); return; }
+    showEmailResult({
+      typeLabel:   data.email_type_label,
+      subject:     data.subject,
+      body:        data.body,
+      actionItems: data.action_items || [],
+    });
+  } catch(e) { showEmailError(e.message); }
+}
+
+function showEmailLoading(msg) {
+  document.getElementById('email-output-empty').style.display = 'none';
+  document.getElementById('email-result').style.display = 'flex';
+  document.getElementById('email-type-chip').style.display = 'none';
+  document.getElementById('email-action-items').style.display = 'none';
+  document.getElementById('email-subject-line').textContent = '';
+  document.getElementById('email-body-box').textContent = msg;
+  currentEmailDraft = '';
+}
+
+function showEmailResult({ typeLabel, subject, body, actionItems = [] }) {
+  document.getElementById('email-output-empty').style.display = 'none';
+  document.getElementById('email-result').style.display = 'flex';
+
+  const chip = document.getElementById('email-type-chip');
+  if (typeLabel) { chip.textContent = typeLabel; chip.style.display = 'inline-block'; }
+  else           { chip.style.display = 'none'; }
+
+  const actionsEl = document.getElementById('email-action-items');
+  if (actionItems.length) {
+    document.getElementById('email-action-list').innerHTML = actionItems.map(a => `<li>${a}</li>`).join('');
+    actionsEl.style.display = '';
+  } else {
+    actionsEl.style.display = 'none';
+  }
+
+  document.getElementById('email-subject-line').innerHTML =
+    subject ? `<strong>Subject:</strong> ${subject}` : '';
+  document.getElementById('email-body-box').textContent = body || '';
+  currentEmailDraft = (subject ? 'Subject: ' + subject + '\n\n' : '') + (body || '');
+}
+
+function showEmailError(msg) {
+  document.getElementById('email-body-box').textContent = 'Error: ' + msg;
+  currentEmailDraft = '';
+}
+
+async function copyEmailDraft() {
+  if (!currentEmailDraft) return;
+  try {
+    await navigator.clipboard.writeText(currentEmailDraft);
+    toast('Email copied to clipboard.');
+  } catch(e) {
+    toast('Copy failed — please select and copy the text manually.', 'error');
   }
 }
 
