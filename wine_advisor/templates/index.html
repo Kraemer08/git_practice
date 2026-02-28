@@ -833,7 +833,7 @@ async function loadDocuments() {
         <td>${typeBadge}</td>
         <td>
           <span class="editable-name" onclick="editDocName(this, ${d.id})" title="Click to rename">${d.supplier || '—'}</span>
-          <div class="doc-contact" onclick="editDocContact(this, ${d.id}, ${JSON.stringify(d.contact_name||'')}, ${JSON.stringify(d.contact_email||'')})" title="Click to edit contact">${contactDisplay}</div>
+          <div class="doc-contact" onclick='editDocContact(this, ${d.id}, ${JSON.stringify(d.contact_name||"")}, ${JSON.stringify(d.contact_email||"")})' title="Click to edit contact">${contactDisplay}</div>
         </td>
         <td><span class="badge badge-wine">${d.wine_count} wines</span></td>
         <td style="font-family:sans-serif;font-size:.78rem;color:var(--muted)">${d.uploaded_at ? d.uploaded_at.slice(0,16) : ''}</td>
