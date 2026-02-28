@@ -117,6 +117,11 @@ def api_update_document(doc_id):
             data.get("contact_name", "").strip(),
             data.get("contact_email", "").strip(),
         )
+    if "relationship_notes" in data:
+        db.update_document_relationship_notes(
+            doc_id,
+            data.get("relationship_notes", "").strip(),
+        )
     return jsonify({"message": "Document updated."})
 
 
@@ -194,6 +199,37 @@ def api_save_concept():
         additional_notes=data.get("additional_notes", ""),
     )
     return jsonify({"message": f"Concept '{name}' saved."})
+
+
+# ── User Profile ────────────────────────────────────────────────────────────────
+
+@app.route("/api/profile", methods=["GET"])
+def api_get_profile():
+    return jsonify(db.get_user_profile())
+
+
+@app.route("/api/profile", methods=["POST"])
+def api_save_profile():
+    data = request.get_json(silent=True) or {}
+    allowed = {"name", "title", "company", "location", "email", "phone", "writing_samples"}
+    filtered = {k: data[k] for k in allowed if k in data}
+    db.save_user_profile(filtered)
+    return jsonify({"message": "Profile saved."})
+
+
+@app.route("/api/profile/analyze-style", methods=["POST"])
+def api_analyze_style():
+    data = request.get_json(silent=True) or {}
+    samples = data.get("writing_samples", "").strip()
+    if not samples:
+        return _err("'writing_samples' is required.")
+    try:
+        from buyer_profile import analyze_writing_style
+        summary = analyze_writing_style(samples)
+        return jsonify({"style_summary": summary})
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return _err(str(exc), 500)
 
 
 # ── Emails ──────────────────────────────────────────────────────────────────────

@@ -6,7 +6,8 @@ Email drafting module for supplier communications.
 - process_inbound_email(): classifies an inbound supplier email and drafts
   an appropriate professional response.
 
-Both functions use tool_use for structured, reliable output.
+Both functions use tool_use for structured, reliable output, and personalize
+emails using the buyer's saved profile (name, title, company, writing style).
 """
 
 import os
@@ -29,14 +30,89 @@ def _make_client() -> anthropic.Anthropic:
 
 client = _make_client()
 
-BUYER_SIGNATURE = "Alexandra Chen\nWine Buyer | The Resort Collection, Los Angeles"
+
+# ── Profile helpers ────────────────────────────────────────────────────────────
+
+def _buyer_signature(profile: dict) -> str:
+    """Build the email sign-off block from the buyer's profile."""
+    name     = (profile.get("name")     or "").strip()
+    title    = (profile.get("title")    or "").strip()
+    company  = (profile.get("company")  or "").strip()
+    location = (profile.get("location") or "").strip()
+
+    lines = []
+    if name:
+        lines.append(name)
+    role_line = title
+    if company:
+        role_line += (" | " if role_line else "") + company
+    if location:
+        role_line += (", " if role_line else "") + location
+    if role_line:
+        lines.append(role_line)
+
+    return "\n".join(lines) if lines else "Wine Buyer"
+
+
+def _buyer_identity(profile: dict) -> str:
+    """One-line identity string for system prompt preamble."""
+    name     = (profile.get("name")     or "the wine buyer").strip()
+    title    = (profile.get("title")    or "").strip()
+    company  = (profile.get("company")  or "").strip()
+    location = (profile.get("location") or "").strip()
+
+    identity = name
+    if title:
+        identity += f", {title}"
+    if company and location:
+        identity += f" at {company} in {location}"
+    elif company:
+        identity += f" at {company}"
+    return identity
+
+
+def _build_outbound_system(profile: dict) -> str:
+    identity      = _buyer_identity(profile)
+    style_summary = (profile.get("style_summary") or "").strip()
+
+    system = (
+        f"You are {identity}. You are writing a professional email to a wine supplier "
+        f"requesting a tasting appointment.\n\n"
+        "These are collegial ongoing relationships — your tone is friendly and direct, "
+        "never generic. You always reference specific wines from their portfolio and clearly "
+        "explain why each one interests you. Keep emails concise: a brief intro, the wines "
+        "you want to taste, and a flexible scheduling ask (under 300 words)."
+    )
+    if style_summary:
+        system += f"\n\nYour personal writing style — match this voice exactly:\n{style_summary}"
+    return system
+
+
+def _build_inbound_system(profile: dict) -> str:
+    identity      = _buyer_identity(profile)
+    style_summary = (profile.get("style_summary") or "").strip()
+
+    system = (
+        f"You are {identity}. A wine supplier or importer rep has sent you an email. "
+        "Read it, classify it, and draft a professional response.\n\n"
+        "Email types:\n"
+        "- tasting_request   — Rep asking to schedule a tasting with you\n"
+        "- buyer_lunch       — Invitation to a winemaker dinner, trade lunch, or similar\n"
+        "- allocation_offer  — Offer of allocated, futures, or limited-availability wines\n"
+        "- vintage_release   — New vintage or portfolio release announcement\n"
+        "- pricing_update    — Updated price list or cost changes\n"
+        "- invoice_follow_up — Payment, invoice, or account query\n"
+        "- general_inquiry   — General check-in, follow-up, or newsletter\n"
+        "- other             — Anything else\n\n"
+        "Response tone: professional, warm, and specific. Reference details from their "
+        "email. Keep replies concise and clear about next steps."
+    )
+    if style_summary:
+        system += f"\n\nYour personal writing style — match this voice exactly:\n{style_summary}"
+    return system
 
 
 # ── Outbound: tasting request ──────────────────────────────────────────────────
-
-_OUTBOUND_SYSTEM = """You are Alexandra Chen, Master Sommelier and senior wine buyer for a luxury resort collection in Los Angeles.
-
-You write professional, warm, and knowledgeable emails to wine suppliers and importers. These are collegial ongoing relationships — your tone is friendly and direct, never generic. You always reference specific wines from their portfolio and clearly explain why each one interests you. Emails are concise: a brief intro, the wines you want to taste, and a flexible scheduling ask."""
 
 _OUTBOUND_TOOLS = [
     {
@@ -71,14 +147,17 @@ def draft_tasting_request(supplier_doc_id: int, concept_name: str,
     Generate a tasting request email for a supplier, tailored to a concept.
     Returns dict: {subject, body, wines_highlighted}.
     """
+    profile = db.get_user_profile()
+
     docs = db.list_documents()
     doc = next((d for d in docs if d["id"] == supplier_doc_id), None)
     if not doc:
         raise ValueError(f"Supplier document {supplier_doc_id} not found.")
 
-    supplier_name = doc.get("supplier") or doc["filename"]
-    contact_name  = doc.get("contact_name") or ""
-    contact_email = doc.get("contact_email") or ""
+    supplier_name        = doc.get("supplier") or doc["filename"]
+    contact_name         = doc.get("contact_name") or ""
+    contact_email        = doc.get("contact_email") or ""
+    relationship_notes   = (doc.get("relationship_notes") or "").strip()
 
     concept = db.get_concept(concept_name) if concept_name else None
 
@@ -106,11 +185,15 @@ Restaurant concept I am building for:
   Wine notes:  {concept.get('wine_style_notes', '')}
 """
 
-    greeting = contact_name if contact_name else "the sales team"
+    relationship_block = ""
+    if relationship_notes:
+        relationship_block = f"\nContext about this rep relationship: {relationship_notes}\n"
+
+    greeting     = contact_name if contact_name else "the sales team"
     contact_line = f" ({contact_email})" if contact_email else ""
 
     prompt = f"""Draft a tasting request email to {supplier_name}, addressed to {greeting}{contact_line}.
-{concept_block}
+{concept_block}{relationship_block}
 Additional buyer notes: {notes or 'None.'}
 
 Full wine portfolio from this supplier:
@@ -119,12 +202,12 @@ Full wine portfolio from this supplier:
 Select 4–8 wines that best fit the concept and notes. For each chosen wine, briefly note why it's interesting (style fit, price point, uniqueness, etc.). Keep the email under 300 words.
 
 Sign off as:
-{BUYER_SIGNATURE}"""
+{_buyer_signature(profile)}"""
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2000,
-        system=_OUTBOUND_SYSTEM,
+        system=_build_outbound_system(profile),
         tools=_OUTBOUND_TOOLS,
         tool_choice={"type": "any"},
         messages=[{"role": "user", "content": prompt}],
@@ -138,22 +221,6 @@ Sign off as:
 
 
 # ── Inbound: classify and respond ─────────────────────────────────────────────
-
-_INBOUND_SYSTEM = """You are Alexandra Chen, Master Sommelier and senior wine buyer for a luxury resort collection in Los Angeles.
-
-A wine supplier or importer rep has sent you an email. Read it, classify it, and draft a professional response.
-
-Email types:
-- tasting_request   — Rep asking to schedule a tasting with you
-- buyer_lunch       — Invitation to a winemaker dinner, trade lunch, or similar
-- allocation_offer  — Offer of allocated, futures, or limited-availability wines
-- vintage_release   — New vintage or portfolio release announcement
-- pricing_update    — Updated price list or cost changes
-- invoice_follow_up — Payment, invoice, or account query
-- general_inquiry   — General check-in, follow-up, or newsletter
-- other             — Anything else
-
-Response tone: professional, warm, and specific. Reference details from their email. Keep replies concise and clear about next steps."""
 
 _INBOUND_TOOLS = [
     {
@@ -203,17 +270,19 @@ def process_inbound_email(email_text: str) -> dict:
     if not email_text.strip():
         raise ValueError("Email text is empty.")
 
+    profile = db.get_user_profile()
+
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2000,
-        system=_INBOUND_SYSTEM,
+        system=_build_inbound_system(profile),
         tools=_INBOUND_TOOLS,
         tool_choice={"type": "any"},
         messages=[{
             "role": "user",
             "content": (
                 f"Here is the supplier email:\n\n---\n{email_text}\n---\n\n"
-                f"Sign your response as:\n{BUYER_SIGNATURE}"
+                f"Sign your response as:\n{_buyer_signature(profile)}"
             ),
         }],
     )

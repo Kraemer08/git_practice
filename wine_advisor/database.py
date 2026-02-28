@@ -72,6 +72,19 @@ def init_db() -> None:
             additional_notes TEXT,
             created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS user_profile (
+            id              INTEGER PRIMARY KEY DEFAULT 1,
+            name            TEXT,
+            title           TEXT,
+            company         TEXT,
+            location        TEXT,
+            email           TEXT,
+            phone           TEXT,
+            writing_samples TEXT,
+            style_summary   TEXT,
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
 
     # Triggers to keep FTS index in sync
@@ -98,6 +111,7 @@ def init_db() -> None:
         "ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'supplier'",
         "ALTER TABLE documents ADD COLUMN contact_name TEXT",
         "ALTER TABLE documents ADD COLUMN contact_email TEXT",
+        "ALTER TABLE documents ADD COLUMN relationship_notes TEXT",
     ]:
         try:
             conn.execute(migration)
@@ -361,6 +375,56 @@ def get_concept(name: str) -> dict | None:
     row = conn.execute("SELECT * FROM concepts WHERE name=?", (name,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+# ── User Profile ─────────────────────────────────────────────────────────────
+
+def get_user_profile() -> dict:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM user_profile WHERE id=1").fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "id": 1, "name": "", "title": "", "company": "", "location": "",
+        "email": "", "phone": "", "writing_samples": "", "style_summary": "",
+    }
+
+
+def save_user_profile(data: dict) -> None:
+    """Upsert the single user profile row (id=1). Only updates provided fields."""
+    allowed = {"name", "title", "company", "location", "email", "phone",
+               "writing_samples", "style_summary"}
+    updates = {k: v for k, v in data.items() if k in allowed}
+    if not updates:
+        return
+    conn = get_conn()
+    existing = conn.execute("SELECT id FROM user_profile WHERE id=1").fetchone()
+    if existing:
+        set_clause = ", ".join(f"{k}=?" for k in updates) + ", updated_at=CURRENT_TIMESTAMP"
+        vals = list(updates.values()) + [1]
+        conn.execute(f"UPDATE user_profile SET {set_clause} WHERE id=?", vals)
+    else:
+        all_fields = ["name", "title", "company", "location", "email",
+                      "phone", "writing_samples", "style_summary"]
+        vals = tuple(updates.get(f, "") for f in all_fields)
+        conn.execute(
+            """INSERT INTO user_profile (id, name, title, company, location, email,
+               phone, writing_samples, style_summary) VALUES (1,?,?,?,?,?,?,?,?)""",
+            vals,
+        )
+    conn.commit()
+    conn.close()
+
+
+def update_document_relationship_notes(doc_id: int, notes: str) -> None:
+    conn = get_conn()
+    conn.execute(
+        "UPDATE documents SET relationship_notes=? WHERE id=?",
+        (notes or None, doc_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 # Initialise on import

@@ -352,6 +352,7 @@
       <button class="tab-btn" data-tab="concepts">&#127963; Concepts</button>
       <button class="tab-btn" data-tab="winelist">&#128203; Wine Lists</button>
       <button class="tab-btn" data-tab="emails">&#9993; Emails</button>
+      <button class="tab-btn" data-tab="profile">&#128100; Profile</button>
     </div>
   </header>
 
@@ -484,6 +485,12 @@
             <button class="email-mode-btn" id="email-mode-inbound" onclick="setEmailMode('inbound')">&#128229; Process Inbound</button>
           </div>
 
+          <!-- Profile nudge -->
+          <div id="email-profile-nudge" style="display:none;background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.25);border-radius:var(--r);padding:10px 14px;font-family:sans-serif;font-size:.78rem;color:var(--gold);line-height:1.55">
+            &#9888; Your profile isn't set up yet — emails will use a generic signature.
+            <button onclick="showTab('profile')" style="background:none;border:none;color:var(--gold);text-decoration:underline;cursor:pointer;font-size:.78rem;padding:0;margin-left:4px">Set up now ›</button>
+          </div>
+
           <!-- Outbound form -->
           <div id="email-outbound-form">
             <div class="form-field">
@@ -568,6 +575,85 @@
       </div>
     </div>
 
+    <!-- Profile -->
+    <div class="panel" id="panel-profile">
+      <div style="overflow-y:auto;padding:28px 36px;max-width:720px">
+
+        <h2 style="font-size:1.05rem;color:var(--gold);margin-bottom:4px">Your Profile</h2>
+        <p style="font-family:sans-serif;font-size:.84rem;color:var(--muted);margin-bottom:28px;line-height:1.6">
+          This information personalizes all emails drafted on your behalf — your name appears in the signature and your writing style shapes the tone.
+        </p>
+
+        <!-- ── Personal info ── -->
+        <h3 style="font-family:sans-serif;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px">Your Information</h3>
+        <div class="detail-form" style="max-width:600px;margin-bottom:32px">
+          <div class="form-row">
+            <div class="form-field">
+              <label>Full Name</label>
+              <input id="profile-name" placeholder="e.g. Sarah Kowalski" />
+            </div>
+            <div class="form-field">
+              <label>Title</label>
+              <input id="profile-title" placeholder="e.g. Wine Buyer, Beverage Director" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Company</label>
+              <input id="profile-company" placeholder="e.g. The Resort Collection" />
+            </div>
+            <div class="form-field">
+              <label>Location</label>
+              <input id="profile-location" placeholder="e.g. Los Angeles" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Email</label>
+              <input id="profile-email" type="email" placeholder="your@email.com" />
+            </div>
+            <div class="form-field">
+              <label>Phone <span style="color:var(--muted);font-weight:normal">(optional)</span></label>
+              <input id="profile-phone" placeholder="+1 (555) 000-0000" />
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="saveProfile()" style="max-width:160px">Save Profile</button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:0 0 28px">
+
+        <!-- ── Writing style ── -->
+        <h3 style="font-family:sans-serif;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Your Writing Style</h3>
+        <p style="font-family:sans-serif;font-size:.83rem;color:var(--muted);line-height:1.65;margin-bottom:16px">
+          Paste 2–3 emails you've actually written to wine reps. Claude will analyze them and build a style profile so that every drafted email sounds like <em>you</em>.
+        </p>
+        <div class="form-field" style="max-width:600px;margin-bottom:14px">
+          <label>Writing Samples</label>
+          <textarea id="profile-samples" rows="11"
+            style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;color:var(--text);font-family:inherit;font-size:.85rem;resize:vertical;width:100%;line-height:1.6"
+            placeholder="Paste 2–3 real emails you've sent to wine suppliers or importers. The more genuine the samples, the more accurately Claude can capture your voice."></textarea>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:20px">
+          <button class="btn btn-primary" onclick="analyzeStyle()" id="analyze-style-btn" style="max-width:200px">Analyze My Style</button>
+          <span id="analyze-status" style="font-family:sans-serif;font-size:.82rem;color:var(--muted)"></span>
+        </div>
+        <div id="style-summary-box" style="display:none;max-width:600px">
+          <div style="font-family:sans-serif;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px">Your Style Profile</div>
+          <div id="style-summary-text"
+            style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;font-family:sans-serif;font-size:.84rem;line-height:1.75;white-space:pre-wrap;color:var(--text)"></div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:28px 0">
+
+        <!-- ── Supplier rep notes tip ── -->
+        <h3 style="font-family:sans-serif;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Supplier Rep Notes</h3>
+        <p style="font-family:sans-serif;font-size:.83rem;color:var(--muted);line-height:1.65;margin-bottom:4px">
+          Add relationship context for each supplier rep in the <strong style="color:var(--text)">Catalogues</strong> tab — click any contact to edit. Notes like <em>"long-time contact, prefers brief emails"</em> or <em>"new rep, formal tone"</em> are woven into outbound emails automatically.
+        </p>
+
+      </div>
+    </div>
+
   </div><!-- /main -->
 </div><!-- /app -->
 
@@ -604,6 +690,7 @@ function showTab(name) {
   if (name === 'concepts') loadConcepts();
   if (name === 'winelist') loadWineListDocs();
   if (name === 'emails')   loadEmailSelects();
+  if (name === 'profile')  loadProfile();
 }
 document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -828,12 +915,15 @@ async function loadDocuments() {
       const contactDisplay = d.contact_name
         ? `${d.contact_name}${d.contact_email ? ' · ' + d.contact_email : ''}`
         : '+ Add contact';
+      const notesIndicator = d.relationship_notes
+        ? ` <span style="color:var(--gold);font-size:.68rem" title="${d.relationship_notes.replace(/"/g,'&quot;')}">&#128203;</span>`
+        : '';
       return `<tr>
         <td style="font-family:sans-serif;font-size:.8rem;color:var(--muted)">${d.filename}</td>
         <td>${typeBadge}</td>
         <td>
           <span class="editable-name" onclick="editDocName(this, ${d.id})" title="Click to rename">${d.supplier || '—'}</span>
-          <div class="doc-contact" onclick='editDocContact(this, ${d.id}, ${JSON.stringify(d.contact_name||"")}, ${JSON.stringify(d.contact_email||"")})' title="Click to edit contact">${contactDisplay}</div>
+          <div class="doc-contact" onclick='editDocContact(this, ${d.id}, ${JSON.stringify(d.contact_name||"")}, ${JSON.stringify(d.contact_email||"")}, ${JSON.stringify(d.relationship_notes||"")})' title="Click to edit contact &amp; rep notes">${contactDisplay}${notesIndicator}</div>
         </td>
         <td><span class="badge badge-wine">${d.wine_count} wines</span></td>
         <td style="font-family:sans-serif;font-size:.78rem;color:var(--muted)">${d.uploaded_at ? d.uploaded_at.slice(0,16) : ''}</td>
@@ -885,49 +975,62 @@ function editDocName(span, docId) {
   });
 }
 
-function editDocContact(div, docId, currentName, currentEmail) {
+function editDocContact(div, docId, currentName, currentEmail, currentNotes) {
+  currentNotes = currentNotes || '';
   const wrap = document.createElement('div');
   wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:2px';
   const mkInput = (val, ph) => {
     const i = document.createElement('input');
     i.value = val; i.placeholder = ph;
-    i.style.cssText = 'background:var(--card);border:1px solid var(--gold);border-radius:4px;padding:3px 8px;color:var(--text);font-family:sans-serif;font-size:.78rem;width:200px';
+    i.style.cssText = 'background:var(--card);border:1px solid var(--gold);border-radius:4px;padding:3px 8px;color:var(--text);font-family:sans-serif;font-size:.78rem;width:220px';
     return i;
   };
   const nameIn  = mkInput(currentName,  'Contact name…');
   const emailIn = mkInput(currentEmail, 'email@supplier.com…');
-  wrap.appendChild(nameIn); wrap.appendChild(emailIn);
+  const notesIn = mkInput(currentNotes, 'Rep notes (e.g. long-time contact, prefers brief emails)…');
+  notesIn.style.width = '220px';
+  wrap.appendChild(nameIn); wrap.appendChild(emailIn); wrap.appendChild(notesIn);
   div.replaceWith(wrap);
   nameIn.focus();
 
   async function save() {
     const n = nameIn.value.trim();
     const e = emailIn.value.trim();
+    const r = notesIn.value.trim();
+    const notesIndicator = r ? ` <span style="color:var(--gold);font-size:.68rem" title="${r.replace(/"/g,'&quot;')}">&#128203;</span>` : '';
     const newDiv = document.createElement('div');
     newDiv.className = 'doc-contact';
-    newDiv.title = 'Click to edit contact';
-    newDiv.textContent = n ? `${n}${e ? ' · ' + e : ''}` : '+ Add contact';
-    newDiv.onclick = () => editDocContact(newDiv, docId, n, e);
+    newDiv.title = 'Click to edit contact & rep notes';
+    newDiv.innerHTML = (n ? `${n}${e ? ' · ' + e : ''}` : '+ Add contact') + notesIndicator;
+    newDiv.onclick = () => editDocContact(newDiv, docId, n, e, r);
     wrap.replaceWith(newDiv);
-    if (n !== currentName || e !== currentEmail) {
+    if (n !== currentName || e !== currentEmail || r !== currentNotes) {
       await fetch(`/api/documents/${docId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contact_name: n, contact_email: e }),
+        body: JSON.stringify({ contact_name: n, contact_email: e, relationship_notes: r }),
       });
       loadEmailSelects();
       toast('Contact updated.');
     }
   }
 
-  // Save on blur from either field (with small delay to allow focus transfer)
+  // Save on blur from any field (with small delay to allow focus transfer)
   let blurTimer;
-  [nameIn, emailIn].forEach(inp => {
+  [nameIn, emailIn, notesIn].forEach(inp => {
     inp.addEventListener('blur', () => { blurTimer = setTimeout(save, 150); });
     inp.addEventListener('focus', () => clearTimeout(blurTimer));
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter')  { e.preventDefault(); emailIn.focus(); if (e.target === emailIn) save(); }
-      if (e.key === 'Escape') { nameIn.value = currentName; emailIn.value = currentEmail; save(); }
+    inp.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter')  {
+        ev.preventDefault();
+        if (ev.target === nameIn)  emailIn.focus();
+        else if (ev.target === emailIn) notesIn.focus();
+        else save();
+      }
+      if (ev.key === 'Escape') {
+        nameIn.value = currentName; emailIn.value = currentEmail; notesIn.value = currentNotes;
+        save();
+      }
     });
   });
 }
@@ -1141,11 +1244,16 @@ function setEmailMode(mode) {
 }
 
 async function loadEmailSelects() {
-  const [docsRes, conceptsRes] = await Promise.all([
-    fetch('/api/documents'), fetch('/api/concepts')
+  const [docsRes, conceptsRes, profileRes] = await Promise.all([
+    fetch('/api/documents'), fetch('/api/concepts'), fetch('/api/profile')
   ]);
   const docs     = await docsRes.json();
   const concepts = await conceptsRes.json();
+  const profile  = await profileRes.json();
+
+  // Show nudge if no name set
+  const nudge = document.getElementById('email-profile-nudge');
+  if (nudge) nudge.style.display = (profile.name || '').trim() ? 'none' : '';
 
   const supplierSel = document.getElementById('email-supplier-select');
   const suppliers = docs.filter(d => d.doc_type === 'supplier');
@@ -1357,6 +1465,78 @@ async function loadWlWines() {
       </div>`).join('');
   } catch(e) {
     grid.innerHTML = '<p style="color:var(--muted)">Error loading wines.</p>';
+  }
+}
+
+/* ── Profile ────────────────────────────────────────────── */
+async function loadProfile() {
+  try {
+    const res = await fetch('/api/profile');
+    const p   = await res.json();
+    document.getElementById('profile-name').value     = p.name     || '';
+    document.getElementById('profile-title').value    = p.title    || '';
+    document.getElementById('profile-company').value  = p.company  || '';
+    document.getElementById('profile-location').value = p.location || '';
+    document.getElementById('profile-email').value    = p.email    || '';
+    document.getElementById('profile-phone').value    = p.phone    || '';
+    document.getElementById('profile-samples').value  = p.writing_samples || '';
+    if (p.style_summary) {
+      document.getElementById('style-summary-text').textContent = p.style_summary;
+      document.getElementById('style-summary-box').style.display = '';
+    }
+  } catch(e) { console.error('Profile load failed:', e); }
+}
+
+async function saveProfile() {
+  const data = {
+    name:     document.getElementById('profile-name').value.trim(),
+    title:    document.getElementById('profile-title').value.trim(),
+    company:  document.getElementById('profile-company').value.trim(),
+    location: document.getElementById('profile-location').value.trim(),
+    email:    document.getElementById('profile-email').value.trim(),
+    phone:    document.getElementById('profile-phone').value.trim(),
+    writing_samples: document.getElementById('profile-samples').value,
+  };
+  const res = await fetch('/api/profile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const r = await res.json();
+  if (res.ok) toast(r.message);
+  else toast(r.error || 'Save failed.', 'error');
+}
+
+async function analyzeStyle() {
+  const samples = document.getElementById('profile-samples').value.trim();
+  if (!samples) { toast('Please paste your writing samples first.', 'error'); return; }
+
+  const btn    = document.getElementById('analyze-style-btn');
+  const status = document.getElementById('analyze-status');
+  btn.disabled = true;
+  status.textContent = 'Analyzing your writing style…';
+
+  // Persist samples first
+  await fetch('/api/profile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writing_samples: samples }),
+  });
+
+  try {
+    const res = await fetch('/api/profile/analyze-style', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ writing_samples: samples }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Analysis failed.', 'error'); return; }
+    document.getElementById('style-summary-text').textContent = data.style_summary;
+    document.getElementById('style-summary-box').style.display = '';
+    status.textContent = 'Style profile updated.';
+    toast('Writing style analyzed and saved.');
+  } catch(e) {
+    toast('Analysis failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { status.textContent = ''; }, 3500);
   }
 }
 
