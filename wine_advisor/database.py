@@ -69,6 +69,13 @@ def init_db() -> None:
             additional_notes TEXT,
             created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS training_materials (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            concept_name TEXT    NOT NULL,
+            content      TEXT    NOT NULL,
+            generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
 
     # Triggers to keep FTS index in sync
@@ -297,6 +304,29 @@ def list_concepts() -> list[dict]:
 def get_concept(name: str) -> dict | None:
     conn = get_conn()
     row = conn.execute("SELECT * FROM concepts WHERE name=?", (name,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# ── Training materials ──────────────────────────────────────────────────────────
+
+def save_training(concept_name: str, content: str) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM training_materials WHERE concept_name=?", (concept_name,))
+    conn.execute(
+        "INSERT INTO training_materials (concept_name, content) VALUES (?,?)",
+        (concept_name, content),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_training(concept_name: str) -> dict | None:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM training_materials WHERE concept_name=? ORDER BY generated_at DESC LIMIT 1",
+        (concept_name,),
+    ).fetchone()
     conn.close()
     return dict(row) if row else None
 

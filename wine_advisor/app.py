@@ -2,16 +2,18 @@
 Flask web application for the Wine Advisor.
 
 Routes:
-  GET  /                    – main UI
-  GET  /api/stats           – database stats
-  GET  /api/documents       – list uploaded documents
-  POST /api/upload          – upload a catalogue
-  DELETE /api/documents/<id> – delete a document + its wines
-  GET  /api/wines           – search/browse wines
-  GET  /api/wines/<id>      – get one wine
-  GET  /api/concepts        – list concepts
-  POST /api/concepts        – create/update a concept
-  POST /api/chat            – streaming chat endpoint (SSE)
+  GET  /                          – main UI
+  GET  /api/stats                 – database stats
+  GET  /api/documents             – list uploaded documents
+  POST /api/upload                – upload a catalogue
+  DELETE /api/documents/<id>      – delete a document + its wines
+  GET  /api/wines                 – search/browse wines
+  GET  /api/wines/<id>            – get one wine
+  GET  /api/concepts              – list concepts
+  POST /api/concepts              – create/update a concept
+  POST /api/chat                  – streaming chat endpoint (SSE)
+  POST /api/training/generate     – stream staff training materials (SSE)
+  GET  /api/training/<concept>    – retrieve saved training for a concept
 """
 
 import json
@@ -198,6 +200,47 @@ def api_chat():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Training (SSE streaming) ────────────────────────────────────────────────────
+
+@app.route("/api/training/generate", methods=["POST"])
+def api_training_generate():
+    data = request.get_json(silent=True) or {}
+    concept_name = data.get("concept_name", "").strip()
+    if not concept_name:
+        return _err("'concept_name' is required.")
+
+    def generate():
+        from trainer import generate_training_stream
+        full_content: list[str] = []
+        try:
+            for chunk in generate_training_stream(concept_name):
+                full_content.append(chunk)
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            db.save_training(concept_name, "".join(full_content))
+        except ValueError as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/api/training/<path:concept_name>")
+def api_get_training(concept_name):
+    material = db.get_training(concept_name)
+    if not material:
+        return _err("No training material found for this concept.", 404)
+    return jsonify(material)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

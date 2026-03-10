@@ -257,6 +257,68 @@
     .modal-close { float: right; background: none; border: none; color: var(--muted);
                    font-size: 1.3rem; cursor: pointer; }
 
+    /* ── Training panel ──────────────────────────────────── */
+    #panel-training { flex-direction: column; overflow: hidden; }
+    .training-toolbar {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+      background: var(--surface); flex-shrink: 0;
+    }
+    .training-toolbar .btn { width: auto; padding: 8px 18px; }
+    .training-status { font-family: sans-serif; font-size: .8rem; color: var(--muted); }
+    .training-body { flex: 1; overflow-y: auto; padding: 28px 36px; }
+    .training-content {
+      font-family: sans-serif; line-height: 1.75; max-width: 860px;
+      font-size: .9rem; color: var(--text);
+    }
+    .training-content h1 {
+      color: var(--gold); font-size: 1.35rem; font-family: 'Georgia', serif;
+      border-bottom: 2px solid var(--wine); padding-bottom: 10px; margin: 0 0 22px;
+    }
+    .training-content h2 {
+      color: var(--text); font-size: 1.05rem; margin: 32px 0 8px;
+      font-family: 'Georgia', serif;
+    }
+    .training-content h3 { color: var(--gold); font-size: .95rem; margin: 24px 0 6px; }
+    .training-content h4 {
+      color: var(--muted); font-size: .82rem; margin: 14px 0 4px;
+      text-transform: uppercase; letter-spacing: .07em;
+    }
+    .training-content p { margin: 6px 0; }
+    .training-content ul, .training-content ol { margin: 6px 0 6px 22px; }
+    .training-content li { margin: 3px 0; }
+    .training-content strong { color: var(--text); }
+    .training-content em { color: #c0b8ae; }
+    .training-content hr { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+    .training-content table {
+      border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .85rem;
+    }
+    .training-content th, .training-content td {
+      padding: 7px 12px; border: 1px solid var(--border); text-align: left;
+    }
+    .training-content th { color: var(--muted); background: rgba(0,0,0,.2); }
+    .training-content blockquote {
+      border-left: 3px solid var(--wine); margin: 10px 0;
+      padding: 4px 16px; color: var(--muted); font-style: italic;
+    }
+
+    /* ── Print styles ─────────────────────────────────────── */
+    @media print {
+      .app > header, .sidebar, .training-toolbar { display: none !important; }
+      .main { grid-template-columns: 1fr; }
+      .panel { display: none !important; }
+      #panel-training { display: block !important; }
+      .training-body { padding: 0; overflow: visible; height: auto; }
+      .training-content { color: #000; max-width: 100%; font-size: .88rem; }
+      .training-content h1 { color: #1a1a1a; border-bottom-color: #555; }
+      .training-content h2 { color: #222; }
+      .training-content h3 { color: #444; }
+      .training-content th { background: #eee; color: #333; }
+      .training-content td, .training-content th { border-color: #bbb; }
+      .training-content hr { border-color: #ccc; }
+      body { background: #fff; color: #000; }
+    }
+
     /* ── Toast ───────────────────────────────────────────── */
     .toast {
       position: fixed; bottom: 24px; right: 24px; background: var(--card);
@@ -283,6 +345,7 @@
       <button class="tab-btn" data-tab="upload">&#128196; Catalogues</button>
       <button class="tab-btn" data-tab="wines">&#128374; Wine Database</button>
       <button class="tab-btn" data-tab="concepts">&#127963; Concepts</button>
+      <button class="tab-btn" data-tab="training">&#127979; Staff Training</button>
     </div>
   </header>
 
@@ -397,6 +460,23 @@
       </div>
     </div>
 
+    <!-- Training -->
+    <div class="panel" id="panel-training">
+      <div class="training-toolbar">
+        <select id="training-concept-select" class="filter-select" style="min-width:220px">
+          <option value="">— Select a concept —</option>
+        </select>
+        <button class="btn btn-primary" onclick="generateTraining()">Generate Training Materials</button>
+        <button class="btn btn-outline" id="btn-print-training" style="display:none" onclick="window.print()">&#128424; Print / Export PDF</button>
+        <span class="training-status" id="training-status"></span>
+      </div>
+      <div class="training-body">
+        <div id="training-content" class="training-content">
+          <p style="color:var(--muted)">Select a concept above and click <strong>Generate Training Materials</strong> to create a comprehensive staff training guide — including wine stories, tasting profiles, food pairings, selling language, and service notes.</p>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /main -->
 </div><!-- /app -->
 
@@ -428,9 +508,10 @@ let searchTimer = null;
 function showTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
-  if (name === 'upload')  loadDocuments();
-  if (name === 'wines')   searchWines();
+  if (name === 'upload')   loadDocuments();
+  if (name === 'wines')    searchWines();
   if (name === 'concepts') loadConcepts();
+  if (name === 'training') populateTrainingConceptSelect();
 }
 document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -787,9 +868,10 @@ function renderConceptDetail(c) {
       ${cArea('Guest Profile', 'edit-guests', c.guest_profile)}
       ${cArea('Wine Style Notes', 'edit-wine-notes', c.wine_style_notes)}
       ${cArea('Additional Notes', 'edit-notes', c.additional_notes)}
-      <div style="display:flex;gap:10px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="saveConcept('${c.name.replace(/'/g,"\\'")}')">Save Changes</button>
         <button class="btn btn-outline" onclick="conceptChat('${c.name.replace(/'/g,"\\'")}')">&#128172; Get Wine List</button>
+        <button class="btn btn-outline" onclick="goToTraining('${c.name.replace(/'/g,"\\'")}')">&#127979; Generate Training</button>
       </div>
     </div>`;
 }
@@ -843,6 +925,92 @@ async function saveConcept(originalName) {
     loadConcepts();
   } else {
     toast(r.error, 'error');
+  }
+}
+
+/* ── Training ───────────────────────────────────────────── */
+async function populateTrainingConceptSelect() {
+  const sel = document.getElementById('training-concept-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Select a concept —</option>';
+  try {
+    const res = await fetch('/api/concepts');
+    const concepts = await res.json();
+    concepts.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.name; o.textContent = c.name;
+      if (c.name === current) o.selected = true;
+      sel.appendChild(o);
+    });
+  } catch(e) { console.error(e); }
+}
+
+function goToTraining(conceptName) {
+  showTab('training');
+  document.getElementById('training-concept-select').value = conceptName;
+  generateTraining();
+}
+
+async function generateTraining() {
+  const conceptName = document.getElementById('training-concept-select').value;
+  if (!conceptName) { toast('Please select a concept first.', 'error'); return; }
+
+  const content = document.getElementById('training-content');
+  const status = document.getElementById('training-status');
+  const printBtn = document.getElementById('btn-print-training');
+
+  content.innerHTML = '<p style="color:var(--muted)">Generating training materials — this takes about a minute…</p>';
+  status.textContent = 'Working…';
+  printBtn.style.display = 'none';
+
+  let fullText = '';
+  try {
+    const res = await fetch('/api/training/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ concept_name: conceptName })
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let firstChunk = true;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') {
+          const wordCount = fullText.trim().split(/\s+/).length;
+          status.textContent = `Training guide complete — ${wordCount.toLocaleString()} words`;
+          printBtn.style.display = '';
+          break;
+        }
+        try {
+          const obj = JSON.parse(data);
+          if (obj.error) {
+            content.innerHTML = `<p style="color:#f07;font-family:sans-serif">Error: ${obj.error}</p>`;
+            status.textContent = '';
+            return;
+          }
+          if (obj.text) {
+            if (firstChunk) { content.innerHTML = ''; firstChunk = false; }
+            fullText += obj.text;
+            content.innerHTML = renderMarkdown(fullText);
+            document.querySelector('.training-body').scrollTop =
+              document.querySelector('.training-body').scrollHeight;
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    content.innerHTML = `<p style="color:#f07;font-family:sans-serif">Connection error: ${e.message}</p>`;
+    status.textContent = '';
   }
 }
 
