@@ -19,6 +19,7 @@ CSV / TXT files are supported too: their contents are treated as report text.
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -196,17 +197,24 @@ def ingest_file(file_path: str | Path, outlet_hint: str | None = None) -> dict:
 
 def _ingest_pmix(filename: str, text: str, outlet_hint: str | None) -> dict:
     chunks = _chunk_text(text)
-    header: dict = {}
-    all_items: list[dict] = []
 
-    for i, chunk in enumerate(chunks):
-        result = _call_tool(
+    # Each chunk is an independent Claude call, so run them concurrently — a
+    # 35-page monthly report is ~17 chunks and would take many minutes serially.
+    def extract(i: int) -> tuple[int, dict]:
+        return i, _call_tool(
             system=_pmix_system(),
-            user=_pmix_user(chunk, i, len(chunks)),
+            user=_pmix_user(chunks[i], i, len(chunks)),
             tool=_PMIX_TOOL,
         )
-        if i == 0:
-            header = result
+
+    results: list[dict] = [{} for _ in chunks]
+    with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as pool:
+        for i, result in pool.map(extract, range(len(chunks))):
+            results[i] = result
+
+    header = results[0] if results else {}
+    all_items: list[dict] = []
+    for result in results:
         all_items.extend(result.get("items", []))
 
     outlet = outlet_hint or header.get("outlet") or "Orla"
