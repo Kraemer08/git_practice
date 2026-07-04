@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Beverage Program Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #0f0e0d;
+    --surface: #1a1815;
+    --card:    #221f1c;
+    --card2:   #2a2622;
+    --border:  #3a342e;
+    --wine:    #8b2635;
+    --gold:    #c9a84c;
+    --text:    #e8ddd0;
+    --muted:   #8a7d6e;
+    --ink2:    #c3c2b7;
+    /* categorical (dark-surface steps, fixed per beverage type) */
+    --c-cocktail:    #3987e5;
+    --c-spirit:      #199e70;
+    --c-wine_btg:    #c98500;
+    --c-wine_bottle: #4c9a2a;
+    --c-beer:        #9085e9;
+    --c-na_beverage: #e66767;
+    --c-coffee_tea:  #d55181;
+    --neutral:       #6b645b;
+    --good:    #0ca30c;
+    --warning: #fab219;
+    --critical:#d03b3b;
+    --r: 8px;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg); color: var(--text);
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .serif { font-family: Georgia, "Times New Roman", serif; }
+
+  /* ── Header ─────────────────────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 20px; padding: 12px 24px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.15rem; color: var(--gold); letter-spacing: .04em; font-weight: 600; }
+  header h1 span { color: var(--muted); font-size: .78rem; display: block; letter-spacing: .02em; font-family: var(--sans); font-weight: 400; }
+  .spacer { flex: 1; }
+  .outlet-tabs { display: flex; gap: 6px; }
+  .outlet-tab {
+    background: var(--card); border: 1px solid var(--border); color: var(--muted);
+    padding: 7px 15px; border-radius: 20px; cursor: pointer; font-size: .82rem;
+    transition: .15s; position: relative;
+  }
+  .outlet-tab:hover:not(:disabled) { color: var(--text); border-color: var(--gold); }
+  .outlet-tab.active { background: var(--wine); color: #fff; border-color: var(--wine); }
+  .outlet-tab:disabled { opacity: .4; cursor: not-allowed; }
+  .outlet-tab .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--good); margin-left:6px; vertical-align: middle; }
+  .btn {
+    background: var(--card); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 16px; border-radius: var(--r); cursor: pointer; font-size: .82rem;
+    font-family: var(--sans); transition: .15s;
+  }
+  .btn:hover { border-color: var(--gold); color: var(--gold); }
+  .btn-primary { background: var(--wine); border-color: var(--wine); color: #fff; }
+  .btn-primary:hover { background: #a02d3e; color: #fff; border-color: #a02d3e; }
+  .btn-gold { background: var(--gold); border-color: var(--gold); color: #1a1512; font-weight: 600; }
+  .btn-gold:hover { background: #d8b95e; color: #1a1512; }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px; }
+  .row { display: grid; gap: 16px; margin-bottom: 16px; }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  .cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 880px) { .cols-2, .cols-3 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+    padding: 18px 20px;
+  }
+  .card h2 { font-size: .92rem; color: var(--gold); font-weight: 600; letter-spacing: .03em; margin-bottom: 4px; }
+  .card .sub { font-size: .74rem; color: var(--muted); margin-bottom: 14px; }
+
+  /* ── KPI tiles ──────────────────────────────────────── */
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 560px)  { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .kpi {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+    padding: 14px 16px;
+  }
+  .kpi .label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+  .kpi .value { font-size: 1.6rem; font-weight: 600; margin-top: 6px; color: var(--text); }
+  .kpi .value.hero { color: var(--gold); }
+  .kpi .foot { font-size: .72rem; color: var(--muted); margin-top: 3px; }
+  .kpi .foot .up { color: var(--good); } .kpi .foot .down { color: var(--critical); }
+
+  /* ── Bars ───────────────────────────────────────────── */
+  .bar-row { display: grid; grid-template-columns: 120px 1fr 92px; align-items: center; gap: 10px; margin: 9px 0; font-size: .82rem; }
+  .bar-row .name { color: var(--ink2); display: flex; align-items: center; gap: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .bar-track { background: rgba(255,255,255,.05); border-radius: 4px; height: 20px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 4px; min-width: 2px; transition: width .5s ease; }
+  .bar-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+  .bar-val .pct { color: var(--muted); font-size: .72rem; }
+
+  /* ── Legend ─────────────────────────────────────────── */
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; font-size: .74rem; color: var(--muted); }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+
+  /* ── Table ──────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .pill { font-size: .68rem; padding: 2px 8px; border-radius: 10px; color: #fff; white-space: nowrap; }
+
+  /* ── Opportunity quadrants ──────────────────────────── */
+  .quad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .quad-grid { grid-template-columns: 1fr; } }
+  .quad { border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; background: var(--card2); }
+  .quad h3 { font-size: .8rem; margin-bottom: 2px; }
+  .quad .desc { font-size: .71rem; color: var(--muted); margin-bottom: 10px; }
+  .quad.star   { border-left: 3px solid var(--good); }
+  .quad.volume { border-left: 3px solid var(--c-cocktail); }
+  .quad.premium{ border-left: 3px solid var(--gold); }
+  .quad.sleeper{ border-left: 3px solid var(--critical); }
+  .quad-item { display: flex; justify-content: space-between; gap: 8px; font-size: .78rem; padding: 3px 0; }
+  .quad-item .qn { color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quad-item .qv { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .quad .more { font-size: .7rem; color: var(--muted); margin-top: 6px; }
+
+  /* ── Insights ───────────────────────────────────────── */
+  .insight-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .insight-headline { font-size: 1.02rem; line-height: 1.55; color: var(--text); margin: 10px 0 18px; }
+  .opp { border: 1px solid var(--border); border-radius: var(--r); padding: 13px 15px; margin-bottom: 10px; background: var(--card2); }
+  .opp-top { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+  .opp-top .t { font-weight: 600; font-size: .9rem; color: var(--gold); flex: 1; }
+  .badge { font-size: .64rem; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex: none; }
+  .badge.high { background: rgba(12,163,12,.18); color: #4cd94c; border: 1px solid rgba(12,163,12,.4); }
+  .badge.medium { background: rgba(250,178,25,.16); color: var(--warning); border: 1px solid rgba(250,178,25,.35); }
+  .badge.low { background: rgba(138,125,110,.15); color: var(--muted); border: 1px solid var(--border); }
+  .opp .detail { font-size: .83rem; color: var(--ink2); line-height: 1.6; }
+  .opp .evidence { font-size: .74rem; color: var(--muted); margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--border); }
+  .watch { margin-top: 14px; }
+  .watch li { font-size: .78rem; color: var(--muted); margin: 6px 0 6px 18px; line-height: 1.5; }
+
+  /* ── Upload / reports ───────────────────────────────── */
+  .drop {
+    border: 2px dashed var(--border); border-radius: var(--r); padding: 26px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: .15s; font-size: .85rem;
+  }
+  .drop:hover, .drop.over { border-color: var(--gold); color: var(--text); background: rgba(201,168,76,.05); }
+  .report-item { display: flex; align-items: center; gap: 10px; font-size: .8rem; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .report-item .meta { flex: 1; }
+  .report-item .rtype { font-size: .68rem; padding: 1px 7px; border-radius: 8px; background: var(--card2); color: var(--muted); border: 1px solid var(--border); }
+  .report-item .del { color: var(--muted); cursor: pointer; background: none; border: none; font-size: .95rem; padding: 2px 6px; }
+  .report-item .del:hover { color: var(--critical); }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 20px; font-size: .9rem; }
+  .note { font-size: .74rem; color: var(--muted); background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: var(--r); padding: 8px 12px; margin-top: 10px; }
+  .note b { color: var(--gold); }
+
+  /* ── Modal ──────────────────────────────────────────── */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .modal-bg.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); width: 100%; max-width: 520px; padding: 22px 24px; max-height: 90vh; overflow-y: auto; }
+  .modal h2 { color: var(--gold); font-size: 1rem; margin-bottom: 4px; }
+  .modal .close { float: right; background: none; border: none; color: var(--muted); font-size: 1.3rem; cursor: pointer; }
+  .field { margin: 14px 0; }
+  .field label { display: block; font-size: .76rem; color: var(--muted); margin-bottom: 5px; }
+  .field select, .field input { width: 100%; padding: 8px 10px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); color: var(--text); font-family: var(--sans); font-size: .85rem; }
+
+  /* ── SVG chart bits ─────────────────────────────────── */
+  svg text { font-family: var(--sans); }
+  .tooltip { position: fixed; pointer-events: none; background: #0c0b0a; border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font-size: .76rem; color: var(--text); z-index: 60; opacity: 0; transition: opacity .1s; max-width: 240px; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--card); border: 1px solid var(--gold); color: var(--text); padding: 11px 20px; border-radius: var(--r); font-size: .84rem; z-index: 80; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+</style>
+</head>
+<body>
+<header>
+  <h1 class="serif">Beverage Program Dashboard<span>Regent Santa Monica Beach · InfoGenesis POS</span></h1>
+  <div class="outlet-tabs" id="outletTabs"></div>
+  <div class="spacer"></div>
+  <div id="dateLabel" style="font-size:.76rem;color:var(--muted);"></div>
+  <button class="btn btn-gold" id="uploadBtn">＋ Upload Report</button>
+</header>
+
+<div class="wrap" id="main"></div>
+
+<!-- Upload modal -->
+<div class="modal-bg" id="uploadModal">
+  <div class="modal">
+    <button class="close" onclick="closeUpload()">×</button>
+    <h2 class="serif">Upload a POS Report</h2>
+    <p class="sub" style="font-size:.78rem;color:var(--muted);margin-top:4px;">
+      Product Mix-Revenue (item detail) or Sales Summary with Revenue Detail (covers &amp; checks). PDF, CSV or TXT.
+    </p>
+    <div class="field">
+      <label>Outlet</label>
+      <select id="uploadOutlet"></select>
+    </div>
+    <div class="drop" id="dropZone">
+      <div id="dropText">Drop a report here, or click to choose a file</div>
+      <input type="file" id="fileInput" accept=".pdf,.csv,.txt" class="hidden" />
+    </div>
+    <div id="uploadStatus" class="note hidden"></div>
+    <div style="margin-top:16px;text-align:right;">
+      <button class="btn" onclick="closeUpload()">Close</button>
+    </div>
+    <div style="margin-top:18px;">
+      <div class="sub" style="font-size:.72rem;color:var(--muted);margin-bottom:8px;">Uploaded reports for this outlet</div>
+      <div id="reportList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tip"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const TYPE_COLOR = {
+  cocktail: 'var(--c-cocktail)', spirit: 'var(--c-spirit)', wine_btg: 'var(--c-wine_btg)',
+  wine_bottle: 'var(--c-wine_bottle)', beer: 'var(--c-beer)',
+  na_beverage: 'var(--c-na_beverage)', coffee_tea: 'var(--c-coffee_tea)',
+  food: 'var(--neutral)', other: 'var(--neutral)',
+};
+const TYPE_HEX = {
+  cocktail:'#3987e5', spirit:'#199e70', wine_btg:'#c98500', wine_bottle:'#4c9a2a',
+  beer:'#9085e9', na_beverage:'#e66767', coffee_tea:'#d55181', food:'#6b645b', other:'#6b645b',
+};
+const CAT_COLOR = { Wine:'#c98500', Liquor:'#3987e5', Beer:'#9085e9', Food:'#6b645b', Miscellaneous:'#4a453f', Other:'#4a453f' };
+
+let STATE = { outlet: null, outlets: [] };
+const $ = (id) => document.getElementById(id);
+const money = (n) => '$' + Math.round(n).toLocaleString();
+const money2 = (n) => '$' + n.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+async function boot() {
+  const data = await fetch('/api/outlets').then(r => r.json());
+  STATE.outlets = data.outlets;
+  const withData = data.outlets.find(o => o.has_data);
+  STATE.outlet = (withData || data.outlets[0]).outlet;
+  renderOutletTabs();
+  buildUploadOutletOptions();
+  await loadDashboard();
+}
+
+function renderOutletTabs() {
+  $('outletTabs').innerHTML = STATE.outlets.map(o => `
+    <button class="outlet-tab ${o.outlet===STATE.outlet?'active':''}" ${o.has_data?'':'disabled'}
+            onclick="selectOutlet('${o.outlet}')" title="${o.has_data?o.report_count+' reports':'No data yet'}">
+      ${o.outlet}${o.has_data?'<span class="dot"></span>':''}
+    </button>`).join('');
+}
+function selectOutlet(o) { STATE.outlet = o; renderOutletTabs(); loadDashboard(); }
+
+// ── Load + render dashboard ───────────────────────────────────────────────
+async function loadDashboard() {
+  $('main').innerHTML = '<div class="empty"><span class="spin"></span> Loading…</div>';
+  const d = await fetch('/api/dashboard?outlet=' + encodeURIComponent(STATE.outlet)).then(r => r.json());
+  STATE.dashboard = d;
+  if (!d.meta.has_data) { renderEmpty(); return; }
+  $('dateLabel').textContent = d.meta.num_days > 1
+    ? `${d.meta.start} → ${d.meta.end} · ${d.meta.num_days} days`
+    : `Business date ${d.meta.start}`;
+  render(d);
+}
+
+function renderEmpty() {
+  $('dateLabel').textContent = '';
+  $('main').innerHTML = `<div class="card"><div class="empty">
+    <div class="serif" style="font-size:1.2rem;color:var(--gold);margin-bottom:8px;">No data for ${STATE.outlet} yet</div>
+    Upload a Product Mix-Revenue and a Sales Summary report to build the dashboard.<br><br>
+    <button class="btn btn-gold" onclick="openUpload()">＋ Upload Report</button>
+  </div></div>`;
+}
+
+function render(d) {
+  const k = d.kpis;
+  const coverNote = k.has_covers ? '' : ' <span style="color:var(--warning)">(upload Sales Summary for covers)</span>';
+  const html = `
+    <div class="kpis">
+      ${kpi('Total Revenue', money(k.total_revenue), `${k.days} day${k.days>1?'s':''} · ${k.checks} checks`)}
+      ${kpi('Beverage Revenue', money(k.beverage_revenue), `${k.beverage_pct}% of total`, true)}
+      ${kpi('Alcohol Revenue', money(k.alcohol_revenue), `${k.alcohol_pct}% of total`)}
+      ${kpi('Bev / Cover', k.has_covers ? money2(k.bev_per_cover) : '—', k.has_covers ? `alcohol ${money2(k.alcohol_per_cover)}` : 'no covers'+coverNote)}
+      ${kpi('Covers', k.covers ? k.covers.toLocaleString() : '—', k.has_covers ? 'guests served' : 'upload summary')}
+      ${kpi('Avg Check', k.avg_check ? money2(k.avg_check) : '—', 'per check')}
+    </div>
+
+    <div class="row cols-2">
+      <div class="card">
+        <h2>Revenue Mix by Category</h2>
+        <div class="sub">Where the outlet's dollars come from — beverage categories in color, food muted.</div>
+        <div id="catMix"></div>
+      </div>
+      <div class="card">
+        <h2>Beverage Program Breakdown</h2>
+        <div class="sub">Net revenue by beverage type · ${d.beverage_mix.reduce((a,b)=>a+b.distinct_items,0)} items</div>
+        <div id="bevMix"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Beverage Trend</h2>
+      <div class="sub">Beverage revenue &amp; attachment per cover, by business day.</div>
+      <div id="trend"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="insight-head">
+        <h2 style="margin:0;">Where's the Opportunity?</h2>
+        <span style="font-size:.72rem;color:var(--muted);">AI briefing from the numbers</span>
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn btn-primary" id="insightBtn" onclick="loadInsights()">Generate briefing</button>
+      </div>
+      <div id="insights"><div class="sub">Click “Generate briefing” for a beverage-director read on this period's data.</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Opportunity Map — Volume × Price</h2>
+      <div class="sub">Each dot is a beverage item. Right = sells more; up = higher ticket. Lines are the medians. No cost data, so this is a revenue/price lens, not margin.</div>
+      <div id="scatter"></div>
+      <div id="quads" class="quad-grid" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Top Beverage Items</h2>
+      <div class="sub">Highest net revenue this period.</div>
+      <div id="topItems"></div>
+    </div>
+
+    ${d.data_quality.days_missing_covers.length ? `<div class="note">⚠ ${d.data_quality.days_missing_covers.length} day(s) have item data but no Sales Summary, so per-cover metrics exclude them: ${d.data_quality.days_missing_covers.join(', ')}.</div>`:''}
+    <div class="note">💡 <b>Tip:</b> these reports carry revenue but no product cost, so margin insight is limited. Add a cost/pour-cost column later to unlock true profit menu-engineering.</div>
+  `;
+  $('main').innerHTML = html;
+  drawCategoryMix(d.category_mix);
+  drawBeverageMix(d.beverage_mix);
+  drawTrend(d.trend, d.kpis.has_covers);
+  drawScatter(d.opportunity);
+  drawQuads(d.opportunity);
+  drawTopItems(d.top_items);
+}
+
+function kpi(label, value, foot, hero) {
+  return `<div class="kpi"><div class="label">${label}</div>
+    <div class="value ${hero?'hero':''}">${value}</div><div class="foot">${foot||''}</div></div>`;
+}
+
+// ── Bar charts ────────────────────────────────────────────────────────────
+function drawCategoryMix(mix) {
+  const max = Math.max(...mix.map(m => m.net_revenue), 1);
+  $('catMix').innerHTML = mix.filter(m=>m.net_revenue>0 || ['Food','Wine','Liquor','Beer'].includes(m.category)).map(m => {
+    const color = CAT_COLOR[m.category] || 'var(--neutral)';
+    return barRow(m.category, color, m.net_revenue/max*100, money(m.net_revenue), m.pct+'%', `${m.units} units`);
+  }).join('');
+}
+function drawBeverageMix(mix) {
+  const max = Math.max(...mix.map(m => m.net_revenue), 1);
+  $('bevMix').innerHTML = mix.map(m =>
+    barRow(m.label, TYPE_HEX[m.bev_type], m.net_revenue/max*100, money(m.net_revenue), m.pct+'%', `${m.units}u · ${money2(m.avg_price)}/ea`)
+  ).join('');
+  $('bevMix').innerHTML += `<div class="legend">
+    <span><span class="swatch" style="background:var(--c-cocktail)"></span>Alcohol</span>
+    <span><span class="swatch" style="background:var(--c-na_beverage)"></span>Non-alcoholic</span>
+    <span style="color:var(--muted)">%= share of beverage revenue</span></div>`;
+}
+function barRow(name, color, pctWidth, val, pct, tipText) {
+  return `<div class="bar-row" data-tip="${tipText||''}">
+    <div class="name" title="${name}"><span class="swatch" style="background:${color}"></span>${name}</div>
+    <div class="bar-track"><div class="bar-fill" style="width:${pctWidth}%;background:${color}"></div></div>
+    <div class="bar-val">${val} <span class="pct">${pct}</span></div>
+  </div>`;
+}
+
+// ── Trend (line) ──────────────────────────────────────────────────────────
+function drawTrend(trend, hasCovers) {
+  const el = $('trend');
+  if (trend.length < 2) {
+    el.innerHTML = `<div class="empty" style="padding:24px;">
+      Only one business day loaded${trend.length?` (${trend[0].date})`:''}. Upload more daily reports to see beverage trend and momentum.<br>
+      ${trend.length ? `<div style="margin-top:12px;font-size:.85rem;color:var(--text)">That day: <b>${money(trend[0].beverage_revenue)}</b> beverage revenue${hasCovers?` · <b>${money2(trend[0].bev_per_cover)}</b>/cover`:''}</div>`:''}
+    </div>`;
+    return;
+  }
+  const W = el.clientWidth || 1100, H = 260, P = {t:20,r:50,b:34,l:56};
+  const xs = trend.map((_,i)=>i);
+  const maxRev = Math.max(...trend.map(t=>t.beverage_revenue))*1.15 || 1;
+  const maxPC = Math.max(...trend.map(t=>t.bev_per_cover))*1.15 || 1;
+  const px = i => P.l + (W-P.l-P.r) * (i/(trend.length-1));
+  const pyRev = v => H-P.b - (H-P.t-P.b) * (v/maxRev);
+  const line = trend.map((t,i)=>`${i?'L':'M'}${px(i)},${pyRev(t.beverage_revenue)}`).join(' ');
+  const area = line + ` L${px(trend.length-1)},${H-P.b} L${px(0)},${H-P.b} Z`;
+  let grid = '';
+  for (let g=0; g<=4; g++){ const y=P.t+(H-P.t-P.b)*g/4; grid += `<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="#2c2c2a"/><text x="${P.l-8}" y="${y+4}" fill="#898781" font-size="10" text-anchor="end">${money(maxRev*(1-g/4))}</text>`; }
+  const dots = trend.map((t,i)=>`<circle cx="${px(i)}" cy="${pyRev(t.beverage_revenue)}" r="4" fill="#c98500" stroke="#221f1c" stroke-width="2" data-tip="${t.date}|${money(t.beverage_revenue)} beverage${hasCovers?` · ${money2(t.bev_per_cover)}/cover`:''} · ${money(t.total_revenue)} total"/>`).join('');
+  const labels = trend.map((t,i)=> (trend.length<=10 || i%Math.ceil(trend.length/10)===0) ? `<text x="${px(i)}" y="${H-P.b+18}" fill="#898781" font-size="10" text-anchor="middle">${t.date.slice(5)}</text>`:'').join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c98500" stop-opacity=".28"/><stop offset="1" stop-color="#c98500" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<path d="${area}" fill="url(#g1)"/><path d="${line}" fill="none" stroke="#c98500" stroke-width="2"/>${dots}${labels}
+    <text x="${P.l}" y="12" fill="#898781" font-size="10">Beverage net revenue</text></svg>`;
+  wireTips(el);
+}
+
+// ── Opportunity scatter ───────────────────────────────────────────────────
+function drawScatter(opp) {
+  const el = $('scatter');
+  if (!opp.enough_data) { el.innerHTML = `<div class="empty" style="padding:20px;">Not enough distinct beverage items yet to map opportunity.</div>`; return; }
+  const items = opp.items;
+  const W = el.clientWidth || 1100, H = 340, P = {t:16,r:20,b:40,l:56};
+  const log = v => Math.log10(Math.max(v, 0.9));
+  const xMax = log(Math.max(...items.map(i=>i.units))*1.25);
+  const yVals = items.map(i=>i.avg_price);
+  const yMin = log(Math.max(Math.min(...yVals)*0.8, 1)), yMax = log(Math.max(...yVals)*1.15);
+  const px = u => P.l + (W-P.l-P.r) * (log(u)/ (xMax||1));
+  const py = p => H-P.b - (H-P.t-P.b) * ((log(p)-yMin)/((yMax-yMin)||1));
+  const mx = px(opp.thresholds.units_median), my = py(opp.thresholds.price_median);
+  // quadrant tints
+  const tint = `<rect x="${mx}" y="${P.t}" width="${W-P.r-mx}" height="${my-P.t}" fill="#0ca30c" opacity=".05"/>
+    <rect x="${P.l}" y="${my}" width="${mx-P.l}" height="${H-P.b-my}" fill="#d03b3b" opacity=".04"/>`;
+  const gl = `<line x1="${mx}" y1="${P.t}" x2="${mx}" y2="${H-P.b}" stroke="#c9a84c" stroke-dasharray="4 4" opacity=".5"/>
+    <line x1="${P.l}" y1="${my}" x2="${W-P.r}" y2="${my}" stroke="#c9a84c" stroke-dasharray="4 4" opacity=".5"/>`;
+  // axis ticks
+  let xt = '';
+  [1,2,3,5,10,20,40].forEach(u=>{ if(log(u)<=xMax){ xt += `<text x="${px(u)}" y="${H-P.b+16}" fill="#898781" font-size="10" text-anchor="middle">${u}</text>`; }});
+  let yt = '';
+  [10,20,40,80,160,320].forEach(p=>{ const lp=log(p); if(lp>=yMin&&lp<=yMax){ yt += `<line x1="${P.l}" y1="${py(p)}" x2="${W-P.r}" y2="${py(p)}" stroke="#2c2c2a"/><text x="${P.l-8}" y="${py(p)+3}" fill="#898781" font-size="10" text-anchor="end">$${p}</text>`; }});
+  const dots = items.map(i=>{
+    const jitter = (i.name.length % 5 - 2) * 1.4;
+    return `<circle cx="${px(i.units)+jitter}" cy="${py(i.avg_price)}" r="5" fill="${TYPE_HEX[i.bev_type]}" fill-opacity=".82" stroke="#221f1c" stroke-width="1"
+      data-tip="${i.name.replace(/"/g,'')}|${i.label} · ${i.units}u · ${money(i.net_revenue)} · ${money2(i.avg_price)}/ea"/>`;
+  }).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    ${tint}${yt}${gl}${dots}${xt}
+    <text x="${(W)/2}" y="${H-4}" fill="#898781" font-size="10" text-anchor="middle">Units sold (log) →</text>
+    <text transform="translate(14,${H/2}) rotate(-90)" fill="#898781" font-size="10" text-anchor="middle">Avg price (log)</text>
+    <text x="${W-P.r}" y="${P.t+2}" fill="#4cd94c" font-size="10" text-anchor="end">★ Stars</text>
+    <text x="${P.l+4}" y="${H-P.b-6}" fill="#e06666" font-size="10">Sleepers</text></svg>
+    <div class="legend">${Object.keys(TYPE_HEX).filter(t=>items.some(i=>i.bev_type===t)).map(t=>`<span><span class="swatch" style="background:${TYPE_HEX[t]}"></span>${LABELS[t]}</span>`).join('')}</div>`;
+  wireTips(el);
+}
+const LABELS = { cocktail:'Cocktails', spirit:'Spirits', wine_btg:'Wine (glass)', wine_bottle:'Wine (bottle)', beer:'Beer', na_beverage:'N/A', coffee_tea:'Coffee & Tea' };
+
+function drawQuads(opp) {
+  if (!opp.enough_data) { $('quads').innerHTML=''; return; }
+  const q = opp.quadrants, L = opp.labels;
+  const block = (key, cls, title) => {
+    const rows = q[key]||[];
+    const top = rows.slice(0,5).map(r=>`<div class="quad-item"><span class="qn">${r.name}</span><span class="qv">${r.units}u · ${money(r.net_revenue)}</span></div>`).join('');
+    return `<div class="quad ${cls}"><h3>${title} <span style="color:var(--muted);font-weight:400">(${rows.length})</span></h3>
+      <div class="desc">${L[key]}</div>${top || '<div class="desc">—</div>'}
+      ${rows.length>5?`<div class="more">+${rows.length-5} more</div>`:''}</div>`;
+  };
+  $('quads').innerHTML = block('star','star','★ Stars') + block('premium','premium','◆ Premium / Occasional')
+    + block('volume','volume','● Volume Drivers') + block('sleeper','sleeper','○ Sleepers');
+}
+
+function drawTopItems(items) {
+  $('topItems').innerHTML = `<table><thead><tr>
+    <th>Item</th><th>Type</th><th class="num">Units</th><th class="num">Net Rev</th><th class="num">Avg $</th></tr></thead>
+    <tbody>${items.map(i=>`<tr>
+      <td>${i.name}</td>
+      <td><span class="pill" style="background:${TYPE_HEX[i.bev_type]}">${i.label}</span></td>
+      <td class="num">${i.units}</td><td class="num">${money(i.net_revenue)}</td><td class="num">${money2(i.avg_price)}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+// ── AI insights ───────────────────────────────────────────────────────────
+async function loadInsights() {
+  const btn = $('insightBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Thinking…';
+  $('insights').innerHTML = '<div class="sub"><span class="spin"></span> Reading the numbers…</div>';
+  try {
+    const r = await fetch('/api/insights?outlet=' + encodeURIComponent(STATE.outlet)).then(r=>r.json());
+    if (r.error) throw new Error(r.error);
+    renderInsights(r);
+  } catch(e) {
+    $('insights').innerHTML = `<div class="note" style="color:var(--critical)">Could not generate briefing: ${e.message}</div>`;
+  }
+  btn.disabled = false; btn.textContent = 'Refresh briefing';
+}
+function renderInsights(r) {
+  const opps = (r.opportunities||[]).map(o=>`
+    <div class="opp"><div class="opp-top">
+      <span class="t">${o.title}</span><span class="badge ${o.impact||'low'}">${o.impact||''}</span></div>
+      <div class="detail">${o.detail||''}</div>
+      ${o.evidence?`<div class="evidence">📊 ${o.evidence}</div>`:''}</div>`).join('');
+  const watch = (r.watch&&r.watch.length)?`<div class="watch"><div class="sub" style="color:var(--gold);font-size:.78rem;margin-bottom:2px;">Watch</div><ul>${r.watch.map(w=>`<li>${w}</li>`).join('')}</ul></div>`:'';
+  $('insights').innerHTML = `<div class="insight-headline">${r.headline||''}</div>${opps}${watch}`;
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────
+function openUpload() { $('uploadModal').classList.add('show'); $('uploadOutlet').value = STATE.outlet; loadReports(); }
+function closeUpload() { $('uploadModal').classList.remove('show'); }
+$('uploadBtn').onclick = openUpload;
+function buildUploadOutletOptions() {
+  $('uploadOutlet').innerHTML = STATE.outlets.map(o=>`<option value="${o.outlet}">${o.outlet}</option>`).join('');
+}
+const dz = $('dropZone'), fi = $('fileInput');
+dz.onclick = () => fi.click();
+dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
+dz.ondragleave = () => dz.classList.remove('over');
+dz.ondrop = e => { e.preventDefault(); dz.classList.remove('over'); if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]); };
+fi.onchange = () => { if (fi.files[0]) uploadFile(fi.files[0]); };
+
+async function uploadFile(file) {
+  const st = $('uploadStatus'); st.classList.remove('hidden');
+  st.innerHTML = `<span class="spin"></span> Reading <b>${file.name}</b> with Claude…`;
+  const fd = new FormData(); fd.append('file', file); fd.append('outlet', $('uploadOutlet').value);
+  try {
+    const r = await fetch('/api/upload', { method:'POST', body: fd }).then(r=>r.json());
+    if (r.error) throw new Error(r.error);
+    st.innerHTML = `✓ ${r.message}`;
+    toast(r.message);
+    await refreshOutlets();
+    if (r.outlet === STATE.outlet) await loadDashboard();
+    loadReports();
+  } catch(e) { st.innerHTML = `<span style="color:var(--critical)">✗ ${e.message}</span>`; }
+  fi.value = '';
+}
+async function refreshOutlets() {
+  const data = await fetch('/api/outlets').then(r=>r.json());
+  STATE.outlets = data.outlets; renderOutletTabs(); buildUploadOutletOptions();
+}
+async function loadReports() {
+  const outlet = $('uploadOutlet').value;
+  const reps = await fetch('/api/reports?outlet=' + encodeURIComponent(outlet)).then(r=>r.json());
+  $('reportList').innerHTML = reps.length ? reps.map(r=>`
+    <div class="report-item">
+      <span class="rtype">${r.report_type==='pmix'?'Product Mix':'Sales Summary'}</span>
+      <div class="meta"><b>${r.business_date||'—'}</b> · ${r.filename}${r.report_type==='pmix'?` · ${r.item_count} items · ${money(r.net_revenue)}`:''}</div>
+      <button class="del" onclick="delReport(${r.id})" title="Delete">🗑</button>
+    </div>`).join('') : '<div class="sub" style="font-size:.76rem;color:var(--muted)">No reports uploaded yet.</div>';
+}
+async function delReport(id) {
+  if (!confirm('Delete this report and its data?')) return;
+  await fetch('/api/reports/' + id, { method:'DELETE' });
+  await refreshOutlets(); loadReports();
+  if (STATE.outlet) loadDashboard();
+}
+
+// ── Tooltips ──────────────────────────────────────────────────────────────
+function wireTips(scope) {
+  scope.querySelectorAll('[data-tip]').forEach(el=>{
+    el.onmousemove = e => {
+      const t = $('tip'); const raw = el.getAttribute('data-tip'); if(!raw) return;
+      const parts = raw.split('|');
+      t.innerHTML = parts.length>1?`<b>${parts[0]}</b><br>${parts[1]}`:raw;
+      t.style.opacity = 1; t.style.left = Math.min(e.clientX+14, window.innerWidth-250)+'px'; t.style.top = (e.clientY+14)+'px';
+    };
+    el.onmouseleave = () => { $('tip').style.opacity = 0; };
+  });
+}
+document.addEventListener('mousemove', e => {
+  const el = e.target.closest && e.target.closest('.bar-row[data-tip]');
+}, true);
+function toast(msg) {
+  const t = document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 4000);
+}
+
+boot();
+</script>
+</body>
+</html>

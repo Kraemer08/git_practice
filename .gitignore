@@ -4,4 +4,5 @@ __pycache__/
 *.db-shm
 *.db-wal
 wine_advisor/uploads/
+beverage_dashboard/uploads/
 .env
