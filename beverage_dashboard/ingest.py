@@ -19,6 +19,7 @@ CSV / TXT files are supported too: their contents are treated as report text.
 import json
 import os
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 import anthropic
@@ -209,7 +210,9 @@ def _ingest_pmix(filename: str, text: str, outlet_hint: str | None) -> dict:
         all_items.extend(result.get("items", []))
 
     outlet = outlet_hint or header.get("outlet") or "Orla"
-    business_date = _norm_date(header.get("business_date"))
+    start_date, end_date, num_days = _period_span(
+        header.get("period_start"), header.get("period_end"),
+        header.get("business_date"))
     gross = sum(db._num(it.get("gross_revenue")) for it in all_items)
     net = sum(db._num(it.get("net_revenue")) for it in all_items)
     disc = sum(db._num(it.get("discounts")) for it in all_items)
@@ -217,17 +220,21 @@ def _ingest_pmix(filename: str, text: str, outlet_hint: str | None) -> dict:
     report_id = db.insert_report(
         filename=filename, report_type="pmix", outlet=outlet,
         store=header.get("store"), period_start=header.get("period_start"),
-        period_end=header.get("period_end"), business_date=business_date,
+        period_end=header.get("period_end"), business_date=start_date,
+        period_end_date=end_date, num_days=num_days,
         gross_revenue=gross, net_revenue=net, discounts=disc,
         item_count=len(all_items),
         raw={"header": {k: v for k, v in header.items() if k != "items"}},
     )
-    inserted = db.insert_sales_items(report_id, outlet, business_date, all_items)
+    inserted = db.insert_sales_items(report_id, outlet, start_date, all_items,
+                                     period_end_date=end_date, num_days=num_days)
 
     return {
         "report_type": "pmix",
         "outlet": outlet,
-        "business_date": business_date,
+        "business_date": start_date,
+        "period_end_date": end_date,
+        "num_days": num_days,
         "items_ingested": inserted,
         "net_revenue": round(net, 2),
         "report_id": report_id,
@@ -243,7 +250,9 @@ def _ingest_summary(filename: str, text: str, outlet_hint: str | None) -> dict:
         tool=_SUMMARY_TOOL,
     )
     outlet = outlet_hint or result.get("outlet") or "Orla"
-    business_date = _norm_date(result.get("business_date"))
+    start_date, end_date, num_days = _period_span(
+        result.get("period_start"), result.get("period_end"),
+        result.get("business_date"))
 
     # Compute the blended average check deterministically (gross / checks)
     # rather than trusting the model to blend per-profit-center figures.
@@ -255,16 +264,18 @@ def _ingest_summary(filename: str, text: str, outlet_hint: str | None) -> dict:
     report_id = db.insert_report(
         filename=filename, report_type="sales_summary", outlet=outlet,
         store=result.get("store"), period_start=result.get("period_start"),
-        period_end=result.get("period_end"), business_date=business_date,
+        period_end=result.get("period_end"), business_date=start_date,
+        period_end_date=end_date, num_days=num_days,
         gross_revenue=db._num(result.get("gross_revenue")),
         net_revenue=db._num(result.get("net_revenue")),
         discounts=db._num(result.get("discounts")),
         item_count=0, raw=result,
     )
 
-    if business_date:
+    if start_date:
         db.upsert_outlet_day(
-            outlet=outlet, business_date=business_date,
+            outlet=outlet, business_date=start_date,
+            period_end_date=end_date, num_days=num_days,
             net_covers=int(db._num(result.get("net_covers"))) or None,
             net_checks=net_checks or None,
             avg_check=avg_check or None,
@@ -276,9 +287,11 @@ def _ingest_summary(filename: str, text: str, outlet_hint: str | None) -> dict:
     return {
         "report_type": "sales_summary",
         "outlet": outlet,
-        "business_date": business_date,
+        "business_date": start_date,
+        "period_end_date": end_date,
+        "num_days": num_days,
         "net_covers": int(db._num(result.get("net_covers"))),
-        "avg_check": round(db._num(result.get("avg_check")), 2),
+        "avg_check": avg_check,
         "report_id": report_id,
     }
 
@@ -398,3 +411,36 @@ def _norm_date(val: str | None) -> str | None:
     if m:
         return f"{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
     return None
+
+
+def _to_date(val: str | None) -> date | None:
+    s = _norm_date(val)
+    if not s:
+        return None
+    y, m, d = (int(x) for x in s.split("-"))
+    try:
+        return date(y, m, d)
+    except ValueError:
+        return None
+
+
+def _period_span(period_start: str | None, period_end: str | None,
+                 business_date: str | None) -> tuple[str | None, str | None, int]:
+    """
+    Work out the reporting period from the report's "Business Period Starting …
+    and Ending …" line.
+
+    InfoGenesis periods run 3:00 AM → next-day 2:59 AM, so a report ending
+    "7/1 2:59 AM" actually covers business days through 6/30. Returns
+    (first_business_day, last_business_day, num_days). A single-day report spans
+    one day; a full month spans ~30.
+    """
+    start = _to_date(period_start) or _to_date(business_date)
+    end = _to_date(period_end)
+    if start and end and end > start:
+        num_days = (end - start).days           # 7/1 - 6/1 = 30
+        last_day = start + timedelta(days=num_days - 1)
+        return start.isoformat(), last_day.isoformat(), num_days
+    if start:
+        return start.isoformat(), start.isoformat(), 1
+    return None, None, 1

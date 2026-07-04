@@ -269,9 +269,9 @@ async function loadDashboard() {
   const d = await fetch('/api/dashboard?outlet=' + encodeURIComponent(STATE.outlet)).then(r => r.json());
   STATE.dashboard = d;
   if (!d.meta.has_data) { renderEmpty(); return; }
-  $('dateLabel').textContent = d.meta.num_days > 1
-    ? `${d.meta.start} → ${d.meta.end} · ${d.meta.num_days} days`
-    : `Business date ${d.meta.start}`;
+  $('dateLabel').textContent = d.meta.num_periods > 1
+    ? `${d.meta.start} → ${d.meta.end} · ${d.meta.num_days} days · ${d.meta.num_periods} reports`
+    : `${d.meta.period_label} · ${d.meta.num_days} day${d.meta.num_days>1?'s':''}`;
   render(d);
 }
 
@@ -339,7 +339,8 @@ function render(d) {
       <div id="topItems"></div>
     </div>
 
-    ${d.data_quality.days_missing_covers.length ? `<div class="note">⚠ ${d.data_quality.days_missing_covers.length} day(s) have item data but no Sales Summary, so per-cover metrics exclude them: ${d.data_quality.days_missing_covers.join(', ')}.</div>`:''}
+    ${d.data_quality.overlapping_periods && d.data_quality.overlapping_periods.length ? `<div class="note" style="border-color:var(--warning)">⚠ <b>Overlapping reports detected</b> — these periods overlap and may double-count revenue: ${d.data_quality.overlapping_periods.map(o=>o.join(' & ')).join('; ')}. Consider deleting one from the upload panel.</div>`:''}
+    ${d.data_quality.days_missing_covers.length ? `<div class="note">⚠ ${d.data_quality.days_missing_covers.length} report(s) have item data but no matching Sales Summary, so per-cover metrics exclude them: ${d.data_quality.days_missing_covers.join(', ')}.</div>`:''}
     <div class="note">💡 <b>Tip:</b> these reports carry revenue but no product cost, so margin insight is limited. Add a cost/pour-cost column later to unlock true profit menu-engineering.</div>
   `;
   $('main').innerHTML = html;
@@ -386,9 +387,10 @@ function barRow(name, color, pctWidth, val, pct, tipText) {
 function drawTrend(trend, hasCovers) {
   const el = $('trend');
   if (trend.length < 2) {
+    const p = trend[0];
     el.innerHTML = `<div class="empty" style="padding:24px;">
-      Only one business day loaded${trend.length?` (${trend[0].date})`:''}. Upload more daily reports to see beverage trend and momentum.<br>
-      ${trend.length ? `<div style="margin-top:12px;font-size:.85rem;color:var(--text)">That day: <b>${money(trend[0].beverage_revenue)}</b> beverage revenue${hasCovers?` · <b>${money2(trend[0].bev_per_cover)}</b>/cover`:''}</div>`:''}
+      One reporting period loaded${p?` (<b>${p.label}</b>${p.num_days>1?`, ${p.num_days} days`:''})`:''}. Upload another day or month to chart the trend and momentum.<br>
+      ${p ? `<div style="margin-top:12px;font-size:.85rem;color:var(--text)">This period: <b>${money(p.beverage_revenue)}</b> beverage revenue${hasCovers?` · <b>${money2(p.bev_per_cover)}</b>/cover`:''}</div>`:''}
     </div>`;
     return;
   }
@@ -402,8 +404,8 @@ function drawTrend(trend, hasCovers) {
   const area = line + ` L${px(trend.length-1)},${H-P.b} L${px(0)},${H-P.b} Z`;
   let grid = '';
   for (let g=0; g<=4; g++){ const y=P.t+(H-P.t-P.b)*g/4; grid += `<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="#2c2c2a"/><text x="${P.l-8}" y="${y+4}" fill="#898781" font-size="10" text-anchor="end">${money(maxRev*(1-g/4))}</text>`; }
-  const dots = trend.map((t,i)=>`<circle cx="${px(i)}" cy="${pyRev(t.beverage_revenue)}" r="4" fill="#c98500" stroke="#221f1c" stroke-width="2" data-tip="${t.date}|${money(t.beverage_revenue)} beverage${hasCovers?` · ${money2(t.bev_per_cover)}/cover`:''} · ${money(t.total_revenue)} total"/>`).join('');
-  const labels = trend.map((t,i)=> (trend.length<=10 || i%Math.ceil(trend.length/10)===0) ? `<text x="${px(i)}" y="${H-P.b+18}" fill="#898781" font-size="10" text-anchor="middle">${t.date.slice(5)}</text>`:'').join('');
+  const dots = trend.map((t,i)=>`<circle cx="${px(i)}" cy="${pyRev(t.beverage_revenue)}" r="4" fill="#c98500" stroke="#221f1c" stroke-width="2" data-tip="${t.label||t.date}|${money(t.beverage_revenue)} beverage${hasCovers?` · ${money2(t.bev_per_cover)}/cover`:''} · ${money(t.total_revenue)} total"/>`).join('');
+  const labels = trend.map((t,i)=> (trend.length<=10 || i%Math.ceil(trend.length/10)===0) ? `<text x="${px(i)}" y="${H-P.b+18}" fill="#898781" font-size="10" text-anchor="middle">${(t.label||t.date).length>7?t.date.slice(5):(t.label||t.date)}</text>`:'').join('');
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
     <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c98500" stop-opacity=".28"/><stop offset="1" stop-color="#c98500" stop-opacity="0"/></linearGradient></defs>
     ${grid}<path d="${area}" fill="url(#g1)"/><path d="${line}" fill="none" stroke="#c98500" stroke-width="2"/>${dots}${labels}
@@ -536,7 +538,7 @@ async function loadReports() {
   $('reportList').innerHTML = reps.length ? reps.map(r=>`
     <div class="report-item">
       <span class="rtype">${r.report_type==='pmix'?'Product Mix':'Sales Summary'}</span>
-      <div class="meta"><b>${r.business_date||'—'}</b> · ${r.filename}${r.report_type==='pmix'?` · ${r.item_count} items · ${money(r.net_revenue)}`:''}</div>
+      <div class="meta"><b>${r.business_date||'—'}${r.num_days>1?' → '+r.period_end_date+' ('+r.num_days+'d)':''}</b> · ${r.filename}${r.report_type==='pmix'?` · ${r.item_count} items · ${money(r.net_revenue)}`:''}</div>
       <button class="del" onclick="delReport(${r.id})" title="Delete">🗑</button>
     </div>`).join('') : '<div class="sub" style="font-size:.76rem;color:var(--muted)">No reports uploaded yet.</div>';
 }

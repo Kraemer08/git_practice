@@ -69,7 +69,9 @@ def init_db() -> None:
             store          TEXT,
             period_start   TEXT,
             period_end     TEXT,
-            business_date  TEXT,               -- YYYY-MM-DD the period belongs to
+            business_date  TEXT,               -- YYYY-MM-DD: first business day of the period
+            period_end_date TEXT,              -- YYYY-MM-DD: last business day of the period
+            num_days       INTEGER DEFAULT 1,  -- number of business days the report spans
             gross_revenue  REAL DEFAULT 0,
             net_revenue    REAL DEFAULT 0,
             discounts      REAL DEFAULT 0,
@@ -82,7 +84,9 @@ def init_db() -> None:
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             report_id        INTEGER REFERENCES reports(id) ON DELETE CASCADE,
             outlet           TEXT,
-            business_date    TEXT,
+            business_date    TEXT,             -- first business day of the report's period
+            period_end_date  TEXT,             -- last business day of the report's period
+            num_days         INTEGER DEFAULT 1,
             profit_center    TEXT,
             pos_item_id      TEXT,
             name             TEXT,
@@ -97,12 +101,15 @@ def init_db() -> None:
             raw_json         TEXT
         );
 
-        -- One row per outlet / business day, sourced from Sales-Summary
+        -- One row per outlet / reporting period, sourced from Sales-Summary
         -- reports. Holds the denominators (covers, checks) that item-level
-        -- PMIX data can't provide on its own.
+        -- PMIX data can't provide on its own. A period may be a single day or a
+        -- whole month; business_date is its first day.
         CREATE TABLE IF NOT EXISTS outlet_days (
             outlet            TEXT,
             business_date     TEXT,
+            period_end_date   TEXT,
+            num_days          INTEGER DEFAULT 1,
             net_covers        INTEGER,
             net_checks        INTEGER,
             avg_check         REAL,
@@ -120,6 +127,27 @@ def init_db() -> None:
     )
     conn.commit()
     conn.close()
+    _migrate()
+
+
+def _migrate() -> None:
+    """
+    Add period columns to databases created before multi-day reports were
+    supported. Existing rows are backfilled as single-day periods, so no data
+    is lost when upgrading.
+    """
+    conn = get_conn()
+    for table in ("reports", "sales_items", "outlet_days"):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "period_end_date" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN period_end_date TEXT")
+            conn.execute(f"UPDATE {table} SET period_end_date = business_date "
+                         f"WHERE period_end_date IS NULL")
+        if "num_days" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN num_days INTEGER DEFAULT 1")
+            conn.execute(f"UPDATE {table} SET num_days = 1 WHERE num_days IS NULL")
+    conn.commit()
+    conn.close()
 
 
 # ── Reports ──────────────────────────────────────────────────────────────────
@@ -127,6 +155,7 @@ def init_db() -> None:
 def insert_report(
     *, filename: str, report_type: str, outlet: str, store: str | None,
     period_start: str | None, period_end: str | None, business_date: str | None,
+    period_end_date: str | None = None, num_days: int = 1,
     gross_revenue: float, net_revenue: float, discounts: float,
     item_count: int, raw: dict,
 ) -> int:
@@ -134,10 +163,12 @@ def insert_report(
     cur = conn.execute(
         """INSERT INTO reports
            (filename, report_type, outlet, store, period_start, period_end,
-            business_date, gross_revenue, net_revenue, discounts, item_count, raw_json)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            business_date, period_end_date, num_days,
+            gross_revenue, net_revenue, discounts, item_count, raw_json)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (filename, report_type, outlet, store, period_start, period_end,
-         business_date, gross_revenue, net_revenue, discounts, item_count,
+         business_date, period_end_date or business_date, num_days,
+         gross_revenue, net_revenue, discounts, item_count,
          json.dumps(raw)),
     )
     report_id = cur.lastrowid
@@ -184,7 +215,8 @@ def report_exists(outlet: str, business_date: str, report_type: str) -> dict | N
 # ── Sales items ──────────────────────────────────────────────────────────────
 
 def insert_sales_items(report_id: int, outlet: str, business_date: str | None,
-                       items: list[dict]) -> int:
+                       items: list[dict], period_end_date: str | None = None,
+                       num_days: int = 1) -> int:
     conn = get_conn()
     inserted = 0
     for it in items:
@@ -194,12 +226,14 @@ def insert_sales_items(report_id: int, outlet: str, business_date: str | None,
         try:
             conn.execute(
                 """INSERT INTO sales_items
-                   (report_id, outlet, business_date, profit_center, pos_item_id,
+                   (report_id, outlet, business_date, period_end_date, num_days,
+                    profit_center, pos_item_id,
                     name, revenue_category, bev_class, bev_type, items_sold,
                     gross_revenue, discounts, net_revenue, avg_price, raw_json)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     report_id, outlet, business_date,
+                    period_end_date or business_date, num_days,
                     it.get("profit_center"), str(it.get("pos_item_id") or ""),
                     it.get("name"), it.get("revenue_category"),
                     bev_class_for(bev_type), bev_type,
@@ -241,22 +275,26 @@ def get_items(outlet: str | None = None, start: str | None = None,
 def upsert_outlet_day(*, outlet: str, business_date: str, net_covers: int | None,
                       net_checks: int | None, avg_check: float | None,
                       gross_revenue: float | None, net_revenue: float | None,
-                      source_report_id: int) -> None:
+                      source_report_id: int, period_end_date: str | None = None,
+                      num_days: int = 1) -> None:
     conn = get_conn()
     conn.execute(
         """INSERT INTO outlet_days
-           (outlet, business_date, net_covers, net_checks, avg_check,
-            gross_revenue, net_revenue, source_report_id)
-           VALUES (?,?,?,?,?,?,?,?)
+           (outlet, business_date, period_end_date, num_days, net_covers,
+            net_checks, avg_check, gross_revenue, net_revenue, source_report_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(outlet, business_date) DO UPDATE SET
+             period_end_date=excluded.period_end_date,
+             num_days=excluded.num_days,
              net_covers=excluded.net_covers,
              net_checks=excluded.net_checks,
              avg_check=excluded.avg_check,
              gross_revenue=excluded.gross_revenue,
              net_revenue=excluded.net_revenue,
              source_report_id=excluded.source_report_id""",
-        (outlet, business_date, net_covers, net_checks, avg_check,
-         gross_revenue, net_revenue, source_report_id),
+        (outlet, business_date, period_end_date or business_date, num_days,
+         net_covers, net_checks, avg_check, gross_revenue, net_revenue,
+         source_report_id),
     )
     conn.commit()
     conn.close()

@@ -11,6 +11,7 @@ on revenue, mix share, price point and attachment-per-cover — not margin.
 Adding item cost later would unlock true profit-based menu engineering.
 """
 
+import calendar
 import json
 import os
 import statistics
@@ -59,7 +60,14 @@ def dashboard(outlet: str, start: str | None = None, end: str | None = None) -> 
 
     total_covers = sum(d["net_covers"] or 0 for d in days)
     total_checks = sum(d["net_checks"] or 0 for d in days)
-    dates = sorted({i["business_date"] for i in items if i["business_date"]})
+
+    # Reporting periods present in the data. A period may be one day or a whole
+    # month; total_days sums their lengths so the timeframe is honest whether
+    # the user uploaded 30 daily reports or one monthly report.
+    periods = _periods_from_items(items)
+    total_days = sum(p["num_days"] for p in periods)
+    span_start = periods[0]["start"] if periods else None
+    span_end = max((p["end"] for p in periods), default=None)
 
     total_net = sum(i["net_revenue"] for i in items)
     alcohol_net = sum(i["net_revenue"] for i in items if i["bev_type"] in ALCOHOL_TYPES)
@@ -79,16 +87,18 @@ def dashboard(outlet: str, start: str | None = None, end: str | None = None) -> 
         "bev_per_cover": round(_safe_div(beverage_net, total_covers), 2),
         "alcohol_per_cover": round(_safe_div(alcohol_net, total_covers), 2),
         "has_covers": total_covers > 0,
-        "days": len(dates),
+        "days": total_days,
+        "num_periods": len(periods),
     }
 
     return {
         "meta": {
             "outlet": outlet,
-            "start": start or (dates[0] if dates else None),
-            "end": end or (dates[-1] if dates else None),
-            "dates": dates,
-            "num_days": len(dates),
+            "start": span_start,
+            "end": span_end,
+            "num_days": total_days,
+            "num_periods": len(periods),
+            "period_label": _period_label(span_start, span_end, total_days),
             "has_data": bool(items),
             "has_covers": total_covers > 0,
         },
@@ -98,9 +108,35 @@ def dashboard(outlet: str, start: str | None = None, end: str | None = None) -> 
         "trend": _trend(items, days),
         "top_items": _top_items(items, limit=12),
         "opportunity": _opportunity_matrix(items),
-        "movers": _movers(items, dates),
-        "data_quality": _data_quality(items, days),
+        "movers": _movers(items, periods),
+        "data_quality": _data_quality(items, days, periods),
     }
+
+
+def _periods_from_items(items: list[dict]) -> list[dict]:
+    """Distinct reporting periods in the data, sorted by start date."""
+    seen: dict[tuple, int] = {}
+    for i in items:
+        start = i.get("business_date")
+        if not start:
+            continue
+        key = (start, i.get("period_end_date") or start)
+        seen[key] = int(i.get("num_days") or 1)
+    return [{"start": k[0], "end": k[1], "num_days": v}
+            for k, v in sorted(seen.items())]
+
+
+def _period_label(start: str | None, end: str | None, num_days: int) -> str:
+    """Human label for a span: a date, a month name, or a start→end range."""
+    if not start:
+        return "—"
+    if num_days <= 1 or start == end or not end:
+        return start
+    sy, sm, sd = (int(x) for x in start.split("-"))
+    ey, em, ed = (int(x) for x in end.split("-"))
+    if sd == 1 and sy == ey and sm == em and ed == calendar.monthrange(sy, sm)[1]:
+        return f"{calendar.month_abbr[sm]} {sy}"   # e.g. "Jun 2026"
+    return f"{start} → {end}"
 
 
 def _category_mix(items: list[dict], total_net: float) -> list[dict]:
@@ -151,27 +187,35 @@ def _beverage_mix(items: list[dict], beverage_net: float) -> list[dict]:
 
 
 def _trend(items: list[dict], days: list[dict]) -> list[dict]:
-    """Per-business-day series for line/area charts."""
-    covers_by_date = {d["business_date"]: (d["net_covers"] or 0) for d in days}
-    by_date = defaultdict(lambda: {"total": 0.0, "alcohol": 0.0, "na": 0.0})
+    """One point per reporting period (a day or a month) for the line chart."""
+    covers_by_start = {d["business_date"]: (d["net_covers"] or 0) for d in days}
+    by_period = defaultdict(lambda: {"total": 0.0, "alcohol": 0.0, "na": 0.0,
+                                     "num_days": 1})
     for i in items:
-        d = i["business_date"]
-        if not d:
+        start = i.get("business_date")
+        if not start:
             continue
-        by_date[d]["total"] += i["net_revenue"]
+        key = (start, i.get("period_end_date") or start)
+        p = by_period[key]
+        p["total"] += i["net_revenue"]
+        p["num_days"] = int(i.get("num_days") or 1)
         if i["bev_type"] in ALCOHOL_TYPES:
-            by_date[d]["alcohol"] += i["net_revenue"]
+            p["alcohol"] += i["net_revenue"]
         elif i["bev_type"] in NA_TYPES:
-            by_date[d]["na"] += i["net_revenue"]
+            p["na"] += i["net_revenue"]
     out = []
-    for d in sorted(by_date):
-        bev = by_date[d]["alcohol"] + by_date[d]["na"]
-        covers = covers_by_date.get(d, 0)
+    for (start, end) in sorted(by_period):
+        p = by_period[(start, end)]
+        bev = p["alcohol"] + p["na"]
+        covers = covers_by_start.get(start, 0)
         out.append({
-            "date": d,
-            "total_revenue": round(by_date[d]["total"], 2),
+            "date": start,
+            "period_end": end,
+            "label": _period_label(start, end, p["num_days"]),
+            "num_days": p["num_days"],
+            "total_revenue": round(p["total"], 2),
             "beverage_revenue": round(bev, 2),
-            "alcohol_revenue": round(by_date[d]["alcohol"], 2),
+            "alcohol_revenue": round(p["alcohol"], 2),
             "covers": covers,
             "bev_per_cover": round(_safe_div(bev, covers), 2),
         })
@@ -273,32 +317,33 @@ def _opportunity_matrix(items: list[dict]) -> dict:
     }
 
 
-def _movers(items: list[dict], dates: list[str]) -> dict:
+def _movers(items: list[dict], periods: list[dict]) -> dict:
     """
-    Compare the two most recent business days (or halves of a longer range) to
-    surface beverage items gaining or losing momentum. Needs 2+ days of data.
+    Compare the two most recent reporting periods (days or months) to surface
+    beverage items gaining or losing momentum. Needs 2+ periods of data.
     """
-    if len(dates) < 2:
+    if len(periods) < 2:
         return {"enough_data": False, "gainers": [], "decliners": [], "note":
-                "Upload at least two days of reports to see momentum."}
+                "Upload a second period (another day or month) to see momentum."}
 
-    mid = len(dates) // 2
-    if len(dates) == 2:
-        prev_dates, cur_dates = {dates[0]}, {dates[1]}
-    else:
-        prev_dates, cur_dates = set(dates[:mid]), set(dates[mid:])
+    prev_p, cur_p = periods[-2], periods[-1]
+    prev_key = (prev_p["start"], prev_p["end"])
+    cur_key = (cur_p["start"], cur_p["end"])
 
-    def bucket(which: set[str]) -> dict:
+    def bucket(key: tuple) -> dict:
         agg = defaultdict(lambda: {"net_revenue": 0.0, "bev_type": None})
         for i in items:
-            if i["bev_type"] not in BEVERAGE_TYPES or i["business_date"] not in which:
+            if i["bev_type"] not in BEVERAGE_TYPES:
                 continue
-            key = (i["name"] or "?").strip()
-            agg[key]["net_revenue"] += i["net_revenue"]
-            agg[key]["bev_type"] = i["bev_type"]
+            ikey = (i.get("business_date"), i.get("period_end_date") or i.get("business_date"))
+            if ikey != key:
+                continue
+            name = (i["name"] or "?").strip()
+            agg[name]["net_revenue"] += i["net_revenue"]
+            agg[name]["bev_type"] = i["bev_type"]
         return agg
 
-    prev, cur = bucket(prev_dates), bucket(cur_dates)
+    prev, cur = bucket(prev_key), bucket(cur_key)
     names = set(prev) | set(cur)
     deltas = []
     for name in names:
@@ -313,20 +358,29 @@ def _movers(items: list[dict], dates: list[str]) -> dict:
     decliners = sorted([d for d in deltas if d["delta"] < 0], key=lambda x: x["delta"])[:8]
     return {
         "enough_data": True,
-        "prev_period": sorted(prev_dates),
-        "current_period": sorted(cur_dates),
+        "prev_period": _period_label(prev_p["start"], prev_p["end"], prev_p["num_days"]),
+        "current_period": _period_label(cur_p["start"], cur_p["end"], cur_p["num_days"]),
         "gainers": gainers,
         "decliners": decliners,
     }
 
 
-def _data_quality(items: list[dict], days: list[dict]) -> dict:
-    dates_with_items = {i["business_date"] for i in items if i["business_date"]}
-    dates_with_covers = {d["business_date"] for d in days if (d["net_covers"] or 0) > 0}
+def _data_quality(items: list[dict], days: list[dict], periods: list[dict]) -> dict:
+    starts_with_covers = {d["business_date"] for d in days if (d["net_covers"] or 0) > 0}
+    missing = [p for p in periods if p["start"] not in starts_with_covers]
+
+    # Flag overlapping periods (e.g. a monthly report AND a daily report inside
+    # it), which would double-count revenue.
+    overlaps = []
+    for a, b in zip(periods, periods[1:]):
+        if a["end"] and b["start"] and b["start"] <= a["end"]:
+            overlaps.append([_period_label(a["start"], a["end"], a["num_days"]),
+                             _period_label(b["start"], b["end"], b["num_days"])])
+
     return {
-        "item_days": len(dates_with_items),
-        "cover_days": len(dates_with_covers),
-        "days_missing_covers": sorted(dates_with_items - dates_with_covers),
+        "num_periods": len(periods),
+        "days_missing_covers": [_period_label(p["start"], p["end"], p["num_days"]) for p in missing],
+        "overlapping_periods": overlaps,
         "has_cost_data": False,
     }
 
